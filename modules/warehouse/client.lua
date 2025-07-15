@@ -103,23 +103,32 @@ end
 
 function warehouse.openWarehouseMenu()
     local stock = lib.callback.await('vehicleshop:getWarehouseStock', false)
-    local categories = {}
+    local options = {}
     
-    for category, label in pairs(Config.VehicleCategories) do
-        table.insert(categories, {
-            title = label,
-            description = locale('warehouse.category_description'),
+    for model, data in pairs(stock) do
+        table.insert(options, {
+            title = data.name,
+            description = string.format('%s | %s: $%s | %s: %d', 
+                data.brand, 
+                locale('warehouse.price'), 
+                data.currentPrice,
+                locale('warehouse.stock'),
+                data.stock
+            ),
             icon = 'car',
+            disabled = data.stock == 0,
             onSelect = function()
-                warehouse.showCategoryVehicles(category)
+                warehouse.previewVehicle(model, data)
             end
         })
     end
     
+    table.sort(options, function(a, b) return a.title < b.title end)
+    
     lib.registerContext({
         id = 'warehouse_menu',
         title = locale('warehouse.title'),
-        options = categories
+        options = options
     })
     
     lib.showContext('warehouse_menu')
@@ -203,7 +212,7 @@ function warehouse.showPurchaseOptions(model, data)
                 title = locale('ui.back'),
                 icon = 'arrow-left',
                 onSelect = function()
-                    warehouse.showCategoryVehicles(data.category)
+                    warehouse.openWarehouseMenu()
                 end
             }
         }
@@ -236,7 +245,7 @@ function warehouse.directPurchase(model, data)
                 description = locale('warehouse.purchased', amount, data.name),
                 type = 'success'
             })
-            warehouse.showCategoryVehicles(data.category)
+            warehouse.openWarehouseMenu()
         else
             lib.notify({
                 title = locale('ui.error'),

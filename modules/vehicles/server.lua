@@ -25,17 +25,32 @@ lib.callback.register('vehicleshop:addDisplayVehicle', function(source, shopId, 
     end
     
     local stock = database.getStock(shopId)
-    local hasStock = false
+    local availableStock = 0
+    local stockPrice = 0
     
     for _, vehicle in ipairs(stock) do
-        if vehicle.model == model and vehicle.amount > 0 then
-            hasStock = true
+        if vehicle.model == model then
+            availableStock = vehicle.amount
+            stockPrice = vehicle.price
             break
         end
     end
     
-    if not hasStock then
+    if availableStock < 1 then
         return false, 'no_stock'
+    end
+    
+    local displayVehicles = database.getDisplayVehicles(shopId)
+    local alreadyOnDisplay = 0
+    
+    for _, display in ipairs(displayVehicles) do
+        if display.model == model then
+            alreadyOnDisplay = alreadyOnDisplay + 1
+        end
+    end
+    
+    if alreadyOnDisplay >= availableStock then
+        return false, 'all_on_display'
     end
     
     local id = database.addDisplayVehicle(shopId, model, position)
@@ -44,7 +59,8 @@ lib.callback.register('vehicleshop:addDisplayVehicle', function(source, shopId, 
         TriggerClientEvent('vehicleshop:displayVehicleAdded', -1, shopId, {
             id = id,
             model = model,
-            position = position
+            position = position,
+            price = stockPrice
         })
         return true
     end

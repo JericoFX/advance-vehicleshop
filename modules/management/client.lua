@@ -517,22 +517,36 @@ end
 
 function management.openStockMenu(shopId)
     local stock = lib.callback.await('vehicleshop:getShopVehicles', false, shopId)
+    local displayVehicles = lib.callback.await('vehicleshop:getDisplayVehicles', false, shopId)
     local rank = lib.callback.await('vehicleshop:getEmployeeRank', false, shopId)
     local options = {}
     
     for _, vehicle in ipairs(stock or {}) do
         local vehicleData = QBCore.Shared.Vehicles[vehicle.model]
+        
+        local onDisplay = 0
+        for _, display in ipairs(displayVehicles or {}) do
+            if display.model == vehicle.model then
+                onDisplay = onDisplay + 1
+            end
+        end
+        
+        local availableStock = vehicle.amount - onDisplay
+        local status = availableStock > 0 and 'Available' or (onDisplay > 0 and 'All on Display' or 'Out of Stock')
+        
         table.insert(options, {
             title = vehicleData and vehicleData.name or vehicle.model,
-            description = string.format('%s: %d | %s: $%s', 
-                locale('warehouse.stock'), vehicle.amount,
-                locale('sales.price'), vehicle.price
+            description = string.format('Total: %d | Display: %d | Available: %d | Price: $%s', 
+                vehicle.amount, onDisplay, availableStock, vehicle.price
             ),
             icon = 'car',
             metadata = {
-                {label = locale('vehicles.model'), value = vehicle.model},
-                {label = locale('warehouse.stock'), value = vehicle.amount},
-                {label = locale('sales.price'), value = '$' .. vehicle.price}
+                {label = 'Model', value = vehicle.model},
+                {label = 'Total Stock', value = vehicle.amount},
+                {label = 'On Display', value = onDisplay},
+                {label = 'Available', value = availableStock},
+                {label = 'Status', value = status},
+                {label = 'Price', value = '$' .. vehicle.price}
             },
             onSelect = function()
                 if rank >= 3 then

@@ -150,7 +150,9 @@
         "display_failed": "Failed to add display vehicle",
         "display_removed": "Display vehicle removed",
         "remove_confirm": "Are you sure you want to remove this display vehicle?",
-        "display_options": "Display Options"
+        "display_options": "Display Options",
+        "all_on_display": "All available units are already on display",
+        "no_stock": "No stock available for this vehicle"
     },
     "funds": {
         "title": "Fund Management",
