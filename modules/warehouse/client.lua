@@ -175,6 +175,46 @@ function warehouse.previewVehicle(model, data)
         return
     end
     
+    warehouse.showPurchaseOptions(model, data)
+end
+
+function warehouse.showPurchaseOptions(model, data)
+    lib.registerContext({
+        id = 'purchase_options',
+        title = data.name,
+        options = {
+            {
+                title = locale('warehouse.direct_purchase'),
+                description = locale('warehouse.direct_purchase_desc'),
+                icon = 'shopping-cart',
+                onSelect = function()
+                    warehouse.directPurchase(model, data)
+                end
+            },
+            {
+                title = locale('warehouse.create_transport'),
+                description = locale('warehouse.create_transport_desc'),
+                icon = 'truck',
+                onSelect = function()
+                    warehouse.createTransport(model, data)
+                end
+            },
+            {
+                title = locale('ui.back'),
+                icon = 'arrow-left',
+                onSelect = function()
+                    warehouse.showCategoryVehicles(data.category)
+                end
+            }
+        }
+    })
+    
+    lib.showContext('purchase_options')
+end
+
+function warehouse.directPurchase(model, data)
+    local shopId = lib.require('modules.shops.client').getCurrentShop()
+    
     local input = lib.inputDialog(locale('warehouse.purchase'), {
         {
             type = 'number',
@@ -204,6 +244,51 @@ function warehouse.previewVehicle(model, data)
                 type = 'error'
             })
         end
+    end
+end
+
+function warehouse.createTransport(model, data)
+    local shopId = lib.require('modules.shops.client').getCurrentShop()
+    
+    local input = lib.inputDialog(locale('warehouse.transport_setup'), {
+        {
+            type = 'number',
+            label = locale('warehouse.amount'),
+            description = locale('warehouse.amount_description'),
+            default = 1,
+            min = 1,
+            max = data.stock
+        },
+        {
+            type = 'select',
+            label = locale('warehouse.transport_type'),
+            description = locale('warehouse.transport_type_desc'),
+            options = {
+                { value = 'delivery', label = locale('warehouse.delivery') },
+                { value = 'trailer', label = locale('warehouse.trailer') }
+            },
+            default = 'delivery'
+        },
+        {
+            type = 'checkbox',
+            label = locale('warehouse.express_delivery'),
+            description = locale('warehouse.express_delivery_desc')
+        }
+    })
+    
+    if input then
+        local amount = input[1]
+        local transportType = input[2]
+        local isExpress = input[3]
+        
+        local vehicles = {{
+            model = model,
+            name = data.name,
+            amount = amount,
+            price = data.currentPrice
+        }}
+        
+        TriggerServerEvent('vehicleshop:createTransport', shopId, vehicles, transportType, isExpress)
     end
 end
 

@@ -14,6 +14,10 @@ function warehouse.loadVehicleData()
     vehicleData = QBCore.Shared.Vehicles
 end
 
+function warehouse.getVehicleData(model)
+    return vehicleData[model]
+end
+
 function warehouse.generateInitialStock()
     local warehouseStock = {}
     

@@ -8,6 +8,20 @@ Config.DefaultShopPrice = 250000
 
 Config.WarehouseRefreshTime = 24 * 60 * 60 * 1000 -- 24 hours in milliseconds
 
+Config.Transport = {
+    deliveryTime = 2 * 60 * 60 * 1000, -- 2 hours in milliseconds (configurable)
+    expressDeliveryTime = 30 * 60 * 1000, -- 30 minutes in milliseconds
+    expressCostMultiplier = 1.15, -- 15% extra cost for express delivery
+    trailerModel = "tr4", -- Car trailer model
+    truckModel = "phantom", -- Truck model
+    maxVehiclesPerTrailer = 4, -- Maximum vehicles per trailer load
+    minVehiclesForTrailer = 4, -- Minimum vehicles to require trailer transport
+    trailerSpawn = vec4(1220.0, -3280.0, 6.0, 90.0), -- Trailer spawn location
+    unloadZone = vec4(1190.0, -3260.0, 6.0, 90.0), -- Unload zone at warehouse
+    freezeVehicles = true, -- Freeze vehicles when loaded on trailer
+    protectDisconnect = true -- Protect trailer from other players when owner disconnects
+}
+
 Config.PriceVariation = {
     min = -10, -- -10% minimum price variation
     max = 20   -- +20% maximum price variation

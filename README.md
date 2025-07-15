@@ -20,6 +20,7 @@ A comprehensive, modular vehicle shop system for FiveM using QBCore framework wi
 ### Inventory & Sales
 - **Warehouse System**: Central warehouse with dynamic stock and price variations
 - **Stock Management**: Purchase vehicles from warehouse to shop inventory
+- **Transport System**: Dual transport modes - automatic delivery or manual trailer transport
 - **Display Vehicles**: Place vehicles on display with interactive placement mode
 - **Sales Tracking**: Comprehensive sales statistics and commission system
 - **Multiple Payment Options**: Cash purchases and financing with down payments
@@ -123,6 +124,22 @@ advanced-vehicleshop/
 - Full shop control
 - Earn 15% commission on sales
 
+## Transport System
+
+The transport system offers two methods for moving vehicles from warehouse to shop:
+
+### Automatic Delivery
+- **Standard Delivery**: Configurable delivery time (default: 2 hours)
+- **Express Delivery**: Faster delivery with additional cost (default: 30 minutes)
+- **Automatic Processing**: Vehicles added to shop stock automatically
+
+### Manual Trailer Transport
+- **Car Trailer**: Spawn truck and trailer for manual transport
+- **Vehicle Loading**: Interactive system to load vehicles onto trailer
+- **Trailer Controls**: Lower/raise trailer, freeze vehicles during transport
+- **Disconnect Protection**: Trailer protected when owner disconnects
+- **Capacity**: Configurable maximum vehicles per trailer (default: 4)
+
 ## Configuration
 
 Edit `shared/init.lua` to configure:
@@ -133,6 +150,9 @@ Edit `shared/init.lua` to configure:
 - Finance options
 - Vehicle categories
 - Plate format
+- Transport delivery times
+- Trailer models and capacity
+- Express delivery cost multiplier
 
 ## Usage Guide
 

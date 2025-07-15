@@ -16,6 +16,7 @@ loadModule('vehicles', 'modules.vehicles.client')
 loadModule('sales', 'modules.sales.client')
 loadModule('testdrive', 'modules.testdrive.client')
 loadModule('ui', 'modules.ui.client')
+loadModule('transport', 'modules.transport.client')
 
 AddEventHandler('onResourceStart', function(resourceName)
     if (GetCurrentResourceName() ~= resourceName) then return end
@@ -27,6 +28,7 @@ AddEventHandler('onResourceStart', function(resourceName)
     modules.testdrive.init()
     modules.management.init()
     modules.ui.init()
+    modules.transport.init()
     
     print('^2[advanced-vehicleshop]^7 Client modules loaded')
 end)
