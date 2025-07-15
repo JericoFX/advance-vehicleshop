@@ -23,6 +23,7 @@ loadModule('prices', 'modules.prices.server')
 loadModule('transport', 'modules.transport.server')
 loadModule('garage', 'modules.garage.server')
 loadModule('testdrive', 'modules.testdrive.server')
+loadModule('creator', 'modules.creator.server')
 loadModule('cron', 'modules.cron.server')
 
 lib.versionCheck('eduardo/advanced-vehicleshop')

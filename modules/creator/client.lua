@@ -160,10 +160,7 @@ function module.confirmCreation()
     cleanup()
 end
 
-lib.addCommand('createshop', {
-    help = 'Create a new vehicle shop',
-    restricted = 'group.admin'
-}, function()
+RegisterNetEvent('vehicleshop:startCreation', function()
     module.startCreation()
 end)
 
