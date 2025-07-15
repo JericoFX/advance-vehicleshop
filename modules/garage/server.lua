@@ -249,20 +249,14 @@ function garage.notifyKeyRemoval(shopId, keyId, vehicleModel)
     end
 end
 
-function garage.startKeyCleanupTimer()
-    CreateThread(function()
-        while true do
-            Wait(5 * 60 * 1000) -- Check every 5 minutes
-            
-            local currentTime = os.time()
-            for keyId, key in pairs(temporaryKeys) do
-                if currentTime > key.expiresAt then
-                    garage.notifyKeyRemoval(key.shopId, keyId, key.vehicleModel)
-                    temporaryKeys[keyId] = nil
-                end
-            end
+function garage.cleanupExpiredKeys()
+    local currentTime = os.time()
+    for keyId, key in pairs(temporaryKeys) do
+        if currentTime > key.expiresAt then
+            garage.notifyKeyRemoval(key.shopId, keyId, key.vehicleModel)
+            temporaryKeys[keyId] = nil
         end
-    end)
+    end
 end
 
 -- Handle player disconnection

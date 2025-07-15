@@ -28,7 +28,14 @@ A comprehensive, modular vehicle shop system for FiveM using QBCore framework wi
 
 ### Customer Experience
 - **Interactive Catalog**: Browse vehicles by category with detailed information
-- **Test Drive System**: Timed test drives with automatic vehicle return
+- **Test Drive System**: 
+  - Timed test drives with configurable duration
+  - Automatic vehicle return on timer expiration
+  - Disconnect protection - vehicles deleted if player disconnects
+  - Exit vehicle detection - test drive ends if player leaves vehicle
+  - Return zone for early vehicle return
+  - Real-time countdown display
+  - Server-side tracking of all active test drives
 - **Finance Calculator**: Multiple financing plans with interest calculations
 - **Vehicle Delivery**: Automatic vehicle spawn upon purchase
 
@@ -200,6 +207,25 @@ The system checks several conditions before allowing placement:
 - **Red Marker**: Invalid placement location
 - **Text Display**: Shows placement status and any issues
 - **Vehicle Transparency**: Changes based on placement validity
+
+## Performance Optimizations
+
+### Cron System
+The resource uses ox_lib's cron system instead of infinite loops for better server performance:
+- **Finance Payments**: Processed hourly at minute 0
+- **Transport Deliveries**: Checked every minute
+- **Key Cleanup**: Expired keys removed every 5 minutes
+- **Daily Maintenance**: Database cleanup at 3 AM daily
+  - Removes test drive logs older than 7 days
+  - Deletes completed transports older than 30 days
+  - Archives sales data older than 90 days
+
+### Test Drive Security Features
+- **Player Disconnect Protection**: Vehicles automatically removed when player disconnects
+- **Server-side Validation**: All test drives tracked and validated on server
+- **Automatic Cleanup**: Expired test drives cleaned up via cron job
+- **Network ID Tracking**: Ensures proper vehicle management across clients
+- **Anti-exploit Measures**: Server validates all test drive actions
 
 ## Usage Guide
 

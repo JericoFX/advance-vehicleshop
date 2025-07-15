@@ -60,6 +60,10 @@ function testdrive.startTestDrive(shopId, model)
     SetPedIntoVehicle(cache.ped, testDriveVehicle, -1)
     SetVehicleEngineOn(testDriveVehicle, true, true, false)
     
+    -- Notify server about test drive start
+    local vehicleNetId = NetworkGetNetworkIdFromEntity(testDriveVehicle)
+    TriggerServerEvent('vehicleshop:testDriveStarted', vehicleNetId, model)
+    
     testDriveActive = true
     testdrive.startTimer()
     
@@ -173,6 +177,12 @@ function testdrive.endTestDrive(timeExpired)
     
     testDriveActive = false
     lib.hideTextUI()
+    
+    -- Notify server about test drive end
+    if testDriveVehicle then
+        local vehicleNetId = NetworkGetNetworkIdFromEntity(testDriveVehicle)
+        TriggerServerEvent('vehicleshop:testDriveEnded', vehicleNetId, timeExpired and 'expired' or 'returned')
+    end
     
     DoScreenFadeOut(500)
     Wait(500)

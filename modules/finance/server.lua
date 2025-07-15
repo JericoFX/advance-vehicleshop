@@ -2,16 +2,7 @@ local finance = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 
 function finance.init()
-    finance.startPaymentTimer()
-end
-
-function finance.startPaymentTimer()
-    CreateThread(function()
-        while true do
-            Wait(3600000) -- Check every hour
-            finance.processPayments()
-        end
-    end)
+    -- Cron job now handles payment processing
 end
 
 function finance.processPayments()

@@ -18,7 +18,9 @@ client_scripts {
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
-    'server/init.lua'
+    'server/init.lua',
+    'modules/testdrive/server.lua',
+    'modules/cron/server.lua'
 }
 
 files {

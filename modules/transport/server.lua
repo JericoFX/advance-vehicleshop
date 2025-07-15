@@ -7,7 +7,7 @@ local trailerProtections = {}
 
 function transport.init()
     transport.loadActiveTransports()
-    transport.startDeliveryTimer()
+    -- Cron job now handles delivery checks
 end
 
 function transport.loadActiveTransports()
@@ -29,14 +29,7 @@ function transport.loadActiveTransports()
     end
 end
 
-function transport.startDeliveryTimer()
-    CreateThread(function()
-        while true do
-            Wait(60000)
-            transport.checkDeliveries()
-        end
-    end)
-end
+-- Removed in favor of cron job
 
 function transport.checkDeliveries()
     local currentTime = os.time()
