@@ -12,6 +12,9 @@ function database.init()
             `management` LONGTEXT NOT NULL,
             `spawn` LONGTEXT NOT NULL,
             `camera` LONGTEXT NOT NULL,
+            `garage` LONGTEXT DEFAULT NULL,
+            `unload` LONGTEXT DEFAULT NULL,
+            `stock` LONGTEXT DEFAULT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             UNIQUE KEY `name` (`name`)
@@ -107,6 +110,16 @@ function database.loadShops()
         shop.spawn = json.decode(shop.spawn)
         shop.camera = json.decode(shop.camera)
         
+        if shop.garage then
+            shop.garage = json.decode(shop.garage)
+        end
+        if shop.unload then
+            shop.unload = json.decode(shop.unload)
+        end
+        if shop.stock then
+            shop.stock = json.decode(shop.stock)
+        end
+        
         local employees = MySQL.query.await('SELECT * FROM vehicleshop_employees WHERE shop_id = ?', {shop.id})
         shop.employees = {}
         for _, employee in ipairs(employees or {}) do
@@ -124,8 +137,8 @@ end
 
 function database.createShop(data)
     local id = MySQL.insert.await([[
-        INSERT INTO vehicleshops (name, owner, price, entry, management, spawn, camera)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO vehicleshops (name, owner, price, entry, management, spawn, camera, garage, unload, stock)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         data.name,
         data.owner,
@@ -133,7 +146,10 @@ function database.createShop(data)
         json.encode(data.entry),
         json.encode(data.management),
         json.encode(data.spawn),
-        json.encode(data.camera)
+        json.encode(data.camera),
+        data.garage and json.encode(data.garage) or nil,
+        data.unload and json.encode(data.unload) or nil,
+        data.stock and json.encode(data.stock) or nil
     })
     
     if id then

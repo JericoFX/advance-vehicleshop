@@ -14,12 +14,21 @@ Config.Transport = {
     expressCostMultiplier = 1.15, -- 15% extra cost for express delivery
     trailerModel = "tr4", -- Car trailer model
     truckModel = "phantom", -- Truck model
+    flatbedModel = "flatbed", -- Flatbed model for individual transport
     maxVehiclesPerTrailer = 4, -- Maximum vehicles per trailer load
     minVehiclesForTrailer = 4, -- Minimum vehicles to require trailer transport
-    trailerSpawn = vec4(1220.0, -3280.0, 6.0, 90.0), -- Trailer spawn location
-    unloadZone = vec4(1190.0, -3260.0, 6.0, 90.0), -- Unload zone at warehouse
     freezeVehicles = true, -- Freeze vehicles when loaded on trailer
-    protectDisconnect = true -- Protect trailer from other players when owner disconnects
+    protectDisconnect = true, -- Protect trailer from other players when owner disconnects
+    trailerCommission = {
+        basePrice = 500, -- Base price for trailer rental
+        perVehiclePrice = 150, -- Additional price per vehicle transported
+        paymentMethod = "cash" -- "cash" or "shop_funds"
+    },
+    flatbedCommission = {
+        basePrice = 300, -- Base price for flatbed rental
+        perVehiclePrice = 100, -- Additional price per vehicle transported
+        paymentMethod = "cash" -- "cash" or "shop_funds"
+    }
 }
 
 Config.PriceVariation = {
@@ -38,6 +47,17 @@ Config.Warehouse = {
         start = vec3(1208.0, -3250.0, 10.0),
         rotation = vec3(-20.0, 0.0, 90.0)
     }
+}
+
+Config.ShopTransport = {
+    garageRadius = 3.0, -- Radius for garage interaction
+    unloadRadius = 5.0, -- Radius for unload interaction
+    stockRadius = 3.0, -- Radius for stock interaction
+    displayRadius = 2.0, -- Radius for display vehicle interaction
+    maxDisplayDistance = 100.0, -- Maximum distance to show display vehicle info
+    temporaryKeyDuration = 30 * 60 * 1000, -- 30 minutes in milliseconds
+    keyCleanupInterval = 5 * 60 * 1000, -- Check every 5 minutes
+    allowSharedVehicleAccess = true -- Allow any employee to move unloaded vehicles
 }
 
 Config.VehicleCategories = {

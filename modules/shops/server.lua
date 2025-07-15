@@ -17,6 +17,15 @@ lib.callback.register('vehicleshop:createShop', function(source, data)
         end
     end
     
+    -- Map locations to database format
+    data.entry = data.locations.entry
+    data.management = data.locations.management
+    data.spawn = data.locations.spawn
+    data.camera = data.locations.camera
+    data.garage = data.locations.garage
+    data.unload = data.locations.unload
+    data.stock = data.locations.stock
+    
     local shops = GlobalState.VehicleShops
     if shops[data.name] then
         return false

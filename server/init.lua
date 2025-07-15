@@ -21,6 +21,7 @@ loadModule('sales', 'modules.sales.server')
 loadModule('finance', 'modules.finance.server')
 loadModule('prices', 'modules.prices.server')
 loadModule('transport', 'modules.transport.server')
+loadModule('garage', 'modules.garage.server')
 
 lib.versionCheck('eduardo/advanced-vehicleshop')
 
@@ -32,6 +33,7 @@ AddEventHandler('onResourceStart', function(resourceName)
     modules.warehouse.startRefreshTimer()
     modules.finance.init()
     modules.transport.init()
+    modules.garage.init()
     
     print('^2[advanced-vehicleshop]^7 All modules loaded successfully')
 end)

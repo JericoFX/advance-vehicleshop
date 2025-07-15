@@ -35,16 +35,40 @@ function transport.registerEvents()
 end
 
 function transport.showTrailerOptions(transportId)
+    transport.loadTransportData(transportId)
+    
+    local vehicleCount = 0
+    if transportData and transportData.vehicles then
+        for _, vehicle in ipairs(transportData.vehicles) do
+            vehicleCount = vehicleCount + vehicle.amount
+        end
+    end
+    
+    local commission = Config.Transport.trailerCommission
+    local totalCost = commission.basePrice + (commission.perVehiclePrice * vehicleCount)
+    
     lib.registerContext({
         id = 'trailer_options',
         title = locale('transport.trailer_options'),
         options = {
             {
+                title = locale('transport.trailer_info'),
+                description = locale('transport.trailer_info_desc'),
+                icon = 'info-circle',
+                readOnly = true,
+                metadata = {
+                    {label = locale('transport.vehicle_count'), value = vehicleCount},
+                    {label = locale('transport.base_cost'), value = '$' .. commission.basePrice},
+                    {label = locale('transport.per_vehicle_cost'), value = '$' .. commission.perVehiclePrice},
+                    {label = locale('transport.total_cost'), value = '$' .. totalCost}
+                }
+            },
+            {
                 title = locale('transport.spawn_trailer'),
-                description = locale('transport.spawn_trailer_desc'),
+                description = locale('transport.spawn_trailer_desc', totalCost),
                 icon = 'truck',
                 onSelect = function()
-                    transport.spawnTrailer(transportId)
+                    transport.confirmTrailerSpawn(transportId, totalCost)
                 end
             },
             {
@@ -59,6 +83,29 @@ function transport.showTrailerOptions(transportId)
     })
     
     lib.showContext('trailer_options')
+end
+
+function transport.confirmTrailerSpawn(transportId, totalCost)
+    local alert = lib.alertDialog({
+        header = locale('transport.confirm_trailer_spawn'),
+        content = locale('transport.confirm_trailer_cost', totalCost),
+        centered = true,
+        cancel = true
+    })
+    
+    if alert == 'confirm' then
+        local success, reason = lib.callback.await('vehicleshop:payTrailerCommission', false, transportId, totalCost)
+        
+        if success then
+            transport.spawnTrailer(transportId)
+        else
+            lib.notify({
+                title = locale('ui.error'),
+                description = locale('transport.' .. (reason or 'payment_failed')),
+                type = 'error'
+            })
+        end
+    end
 end
 
 function transport.spawnTrailer(transportId)
@@ -98,11 +145,10 @@ function transport.spawnTrailer(transportId)
 end
 
 function transport.loadTransportData(transportId)
-    lib.callback('vehicleshop:getTransportData', false, function(data)
-        if data then
-            transportData = data
-        end
-    end, transportId)
+    local data = lib.callback.await('vehicleshop:getTransportData', false, transportId)
+    if data then
+        transportData = data
+    end
 end
 
 function transport.createTrailerZone()

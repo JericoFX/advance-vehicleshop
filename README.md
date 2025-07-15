@@ -5,10 +5,11 @@ A comprehensive, modular vehicle shop system for FiveM using QBCore framework wi
 ## Features
 
 ### Core Systems
-- **Modular Architecture**: Clean separation of concerns with 13 specialized modules
+- **Modular Architecture**: Clean separation of concerns with 14 specialized modules
 - **Real-time Sync**: GlobalState synchronization for instant updates across all clients
 - **Secure Callbacks**: Server-side validation for all sensitive operations
-- **Performance Optimized**: Uses ox_lib zones and efficient caching
+- **Performance Optimized**: Uses ox_lib zones, points, and efficient caching
+- **Shop-specific Transport**: Each shop has its own garage, unload, and stock points
 
 ### Shop Management
 - **Dynamic Shop Creation**: Admin command to create shops with customizable zones
@@ -90,6 +91,8 @@ advanced-vehicleshop/
 │   ├── testdrive/
 │   ├── management/
 │   ├── creator/
+│   ├── transport/
+│   ├── garage/
 │   └── ui/
 ├── locales/
 │   └── en.json
@@ -135,10 +138,21 @@ The transport system offers two methods for moving vehicles from warehouse to sh
 
 ### Manual Trailer Transport
 - **Car Trailer**: Spawn truck and trailer for manual transport
+- **Flatbed Transport**: Single vehicle transport with flatbed truck
 - **Vehicle Loading**: Interactive system to load vehicles onto trailer
 - **Trailer Controls**: Lower/raise trailer, freeze vehicles during transport
+- **Manual Unloading**: Players must manually unload vehicles at shop
+- **Stock Management**: Vehicles must be manually moved to stock point
 - **Disconnect Protection**: Trailer protected when owner disconnects
 - **Capacity**: Configurable maximum vehicles per trailer (default: 4)
+
+### Transport Garage System
+- **Shop-specific Garage**: Each shop has its own garage point for transport vehicles
+- **Garage Access**: Only shop employees can access garage
+- **Vehicle Spawn**: Spawn trailer or flatbed trucks at designated points
+- **Unload Zone**: Designated area for unloading vehicles from transport
+- **Stock Point**: Separate point for storing vehicles in shop inventory
+- **Interactive Points**: ox_lib points for seamless interaction
 
 ## Configuration
 
@@ -154,6 +168,39 @@ Edit `shared/init.lua` to configure:
 - Trailer models and capacity
 - Express delivery cost multiplier
 
+## Display Vehicle Placement System
+
+### Overview
+The display vehicle placement system allows employees (Rank 2+) to position vehicles around the shop for display. This system provides an intuitive, real-time preview with distance and rotation controls.
+
+### Placement Controls
+- **Mouse Movement**: Aim camera to position vehicle
+- **Mouse Wheel Up/Down**: Adjust distance (5-50 meters)
+- **Left/Right Arrow Keys**: Rotate vehicle
+- **E Key**: Confirm placement
+- **X Key**: Cancel placement
+
+### Placement Features
+- **Real-time Preview**: Semi-transparent vehicle preview
+- **Distance Control**: Adjustable placement distance from 5 to 50 meters
+- **Ground Detection**: Automatic ground positioning with raycast
+- **Collision Detection**: Prevents placement near other vehicles
+- **Validity Indicators**: Visual feedback for valid/invalid placement
+- **Shop Boundary Check**: Ensures vehicles stay within shop area
+
+### Placement Validation
+The system checks several conditions before allowing placement:
+- Distance from shop center (max 100 meters)
+- Proximity to other vehicles (min 5 meters)
+- Valid ground surface
+- No obstacles in placement area
+
+### Visual Feedback
+- **Green Marker**: Valid placement location
+- **Red Marker**: Invalid placement location
+- **Text Display**: Shows placement status and any issues
+- **Vehicle Transparency**: Changes based on placement validity
+
 ## Usage Guide
 
 ### For Shop Owners
@@ -167,6 +214,9 @@ Edit `shared/init.lua` to configure:
 1. Get hired by a shop owner/manager
 2. Help customers browse and purchase vehicles
 3. Manage display vehicles (Rank 2+)
+   - Add vehicles from inventory to display
+   - Use placement mode to position vehicles
+   - Remove or update display vehicles
 4. Track your sales performance
 5. Earn commission on each sale
 

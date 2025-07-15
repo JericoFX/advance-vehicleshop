@@ -153,4 +153,71 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     end
 end)
 
+lib.callback.register('vehicleshop:payTrailerCommission', function(source, transportId, totalCost)
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return false, 'invalid_player' end
+    
+    local paymentMethod = Config.Transport.trailerCommission.paymentMethod
+    
+    if paymentMethod == 'cash' then
+        local playerMoney = Player.Functions.GetMoney('cash')
+        if playerMoney < totalCost then
+            return false, 'insufficient_cash'
+        end
+        
+        Player.Functions.RemoveMoney('cash', totalCost, 'trailer-commission')
+        
+        lib.logger(Player.PlayerData.source, 'payTrailerCommission', {
+            transportId = transportId,
+            amount = totalCost,
+            method = 'cash'
+        })
+        
+        return true
+    elseif paymentMethod == 'shop_funds' then
+        local transportData = activeTransports[transportId]
+        if not transportData then return false, 'transport_not_found' end
+        
+        local shop = GlobalState.VehicleShops[transportData.shopId]
+        if not shop then return false, 'shop_not_found' end
+        
+        if shop.funds < totalCost then
+            return false, 'insufficient_shop_funds'
+        end
+        
+        database.updateShop(transportData.shopId, 'funds', shop.funds - totalCost)
+        
+        lib.logger(Player.PlayerData.source, 'payTrailerCommission', {
+            transportId = transportId,
+            shopId = transportData.shopId,
+            amount = totalCost,
+            method = 'shop_funds'
+        })
+        
+        return true
+    end
+    
+    return false, 'invalid_payment_method'
+end)
+
+lib.callback.register('vehicleshop:getTransportData', function(source, transportId)
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return nil end
+    
+    local result = MySQL.query.await('SELECT * FROM vehicleshop_transports WHERE id = ? AND player_id = ?', {transportId, Player.PlayerData.source})
+    if result and result[1] then
+        local data = result[1]
+        return {
+            id = data.id,
+            shopId = data.shop_id,
+            vehicles = json.decode(data.vehicles),
+            totalCost = data.total_cost,
+            transportType = data.transport_type,
+            status = data.status
+        }
+    end
+    
+    return nil
+end)
+
 return transport
