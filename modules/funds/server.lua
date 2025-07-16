@@ -1,35 +1,30 @@
 local funds = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
 
 lib.callback.register('vehicleshop:getShopFunds', function(source, shopId)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local rank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 3 then
+    if rank < 3 then
         return false
     end
     
-    return shop.funds
+    return business.getBusinessFunds(shopId)
 end)
 
 lib.callback.register('vehicleshop:depositFunds', function(source, shopId, amount)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local rank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee then
+    if rank < 1 then
         return false, 'not_employee'
     end
     
@@ -46,32 +41,38 @@ lib.callback.register('vehicleshop:depositFunds', function(source, shopId, amoun
     end
     
     if hasBank then
-        Player.Functions.RemoveMoney('bank', amount)
+        if not Player.Functions.RemoveMoney('bank', amount) then
+            return false, 'remove_money_failed'
+        end
     else
-        Player.Functions.RemoveMoney('cash', amount)
+        if not Player.Functions.RemoveMoney('cash', amount) then
+            return false, 'remove_money_failed'
+        end
     end
     
-    database.updateShop(shopId, 'funds', shop.funds + amount)
-    
-    funds.logTransaction(shopId, citizenid, 'deposit', amount)
-    
-    return true
+    if business.updateBusinessFunds(shopId, amount, false) then
+        funds.logTransaction(shopId, citizenid, 'deposit', amount)
+        return true
+    else
+        -- Revertir si falló la actualización
+        if hasBank then
+            Player.Functions.AddMoney('bank', amount)
+        else
+            Player.Functions.AddMoney('cash', amount)
+        end
+        return false, 'deposit_failed'
+    end
 end)
 
 lib.callback.register('vehicleshop:withdrawFunds', function(source, shopId, amount)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
+    local rank = business.getEmployeeRank(citizenid, shopId)
     
-    if shop.owner ~= citizenid then
-        local employee = shop.employees[citizenid]
-        if not employee or employee.rank < 4 then
-            return false, 'no_permission'
-        end
+    if rank < 4 then
+        return false, 'no_permission'
     end
     
     amount = tonumber(amount)
@@ -79,29 +80,28 @@ lib.callback.register('vehicleshop:withdrawFunds', function(source, shopId, amou
         return false, 'invalid_amount'
     end
     
-    if shop.funds < amount then
+    local currentFunds = business.getBusinessFunds(shopId)
+    if currentFunds < amount then
         return false, 'insufficient_funds'
     end
     
-    database.updateShop(shopId, 'funds', shop.funds - amount)
-    Player.Functions.AddMoney('bank', amount)
-    
-    funds.logTransaction(shopId, citizenid, 'withdraw', amount)
-    
-    return true
+    if business.updateBusinessFunds(shopId, amount, true) then
+        Player.Functions.AddMoney('bank', amount)
+        funds.logTransaction(shopId, citizenid, 'withdraw', amount)
+        return true
+    else
+        return false, 'withdraw_failed'
+    end
 end)
 
 lib.callback.register('vehicleshop:getTransactions', function(source, shopId, limit)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local rank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 3 then
+    if rank < 3 then
         return false
     end
     
@@ -136,19 +136,14 @@ lib.callback.register('vehicleshop:transferFunds', function(source, fromShopId, 
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local fromShop = GlobalState.VehicleShops[fromShopId]
-    local toShop = GlobalState.VehicleShops[toShopId]
-    
-    if not fromShop or not toShop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
     
-    if fromShop.owner ~= citizenid then
-        return false, 'not_owner'
-    end
+    -- Verificar permisos usando advance-manager
+    local fromRank = business.getEmployeeRank(citizenid, fromShopId)
+    local toRank = business.getEmployeeRank(citizenid, toShopId)
     
-    if toShop.owner ~= citizenid then
-        return false, 'not_owner'
+    if fromRank < 4 or toRank < 4 then
+        return false, 'no_permission'
     end
     
     amount = tonumber(amount)
@@ -156,15 +151,33 @@ lib.callback.register('vehicleshop:transferFunds', function(source, fromShopId, 
         return false, 'invalid_amount'
     end
     
-    if fromShop.funds < amount then
+    local fromFunds = business.getBusinessFunds(fromShopId)
+    if fromFunds < amount then
         return false, 'insufficient_funds'
     end
     
-    database.updateShop(fromShopId, 'funds', fromShop.funds - amount)
-    database.updateShop(toShopId, 'funds', toShop.funds + amount)
+    -- Realizar transferencia usando advance-manager
+    local withdrawSuccess = business.updateBusinessFunds(fromShopId, amount, true)
+    if not withdrawSuccess then
+        return false, 'withdraw_failed'
+    end
     
-    funds.logTransaction(fromShopId, citizenid, 'transfer_out', amount, 'Transfer to ' .. toShop.name)
-    funds.logTransaction(toShopId, citizenid, 'transfer_in', amount, 'Transfer from ' .. fromShop.name)
+    local depositSuccess = business.updateBusinessFunds(toShopId, amount, false)
+    if not depositSuccess then
+        -- Revertir retiro si falló el depósito
+        business.updateBusinessFunds(fromShopId, amount, false)
+        return false, 'deposit_failed'
+    end
+    
+    -- Obtener nombres de tiendas para logs
+    local fromBusiness = business.getBusinessByShop(fromShopId)
+    local toBusiness = business.getBusinessByShop(toShopId)
+    
+    local fromName = fromBusiness and fromBusiness.name or 'Unknown Shop'
+    local toName = toBusiness and toBusiness.name or 'Unknown Shop'
+    
+    funds.logTransaction(fromShopId, citizenid, 'transfer_out', amount, 'Transfer to ' .. toName)
+    funds.logTransaction(toShopId, citizenid, 'transfer_in', amount, 'Transfer from ' .. fromName)
     
     return true
 end)

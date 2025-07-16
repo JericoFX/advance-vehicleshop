@@ -1,91 +1,77 @@
 local employees = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
 
 lib.callback.register('vehicleshop:getEmployees', function(source, shopId)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
+    local businessData = business.getBusinessByShop(shopId)
+    if not businessData then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local playerRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 3 then
+    if playerRank < 3 then
         return false
     end
     
-    local employeeList = {}
-    for cid, data in pairs(shop.employees) do
-        local targetPlayer = QBCore.Functions.GetPlayerByCitizenId(cid)
-        local name = 'Unknown'
-        
-        if targetPlayer then
-            name = targetPlayer.PlayerData.charinfo.firstname .. ' ' .. targetPlayer.PlayerData.charinfo.lastname
-        else
-            local result = MySQL.query.await('SELECT charinfo FROM players WHERE citizenid = ?', {cid})
-            if result[1] then
-                local charinfo = json.decode(result[1].charinfo)
-                name = charinfo.firstname .. ' ' .. charinfo.lastname
-            end
-        end
-        
-        table.insert(employeeList, {
-            citizenid = cid,
-            name = name,
-            rank = data.rank,
-            hired_at = data.hired_at
+    -- Usar advance-manager para obtener empleados con caché segura
+    local employeeList = exports['advance-manager']:getBusinessEmployees(businessData.id)
+    
+    -- Formatear para compatibilidad con sistema vehicleshop
+    local formattedEmployees = {}
+    for _, employee in pairs(employeeList) do
+        table.insert(formattedEmployees, {
+            citizenid = employee.citizenid,
+            name = employee.name,
+            rank = employee.grade + 1, -- Convertir grade a rank
+            hired_at = employee.hired_at or os.time(),
+            wage = employee.wage or 0
         })
     end
     
-    return employeeList
+    return formattedEmployees
 end)
 
 lib.callback.register('vehicleshop:hireEmployee', function(source, shopId, targetId)
     local Player = QBCore.Functions.GetPlayer(source)
-    local Target = QBCore.Functions.GetPlayer(targetId)
-    
-    if not Player or not Target then return false end
-    
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
+    if not Player then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local playerRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 3 then
+    if playerRank < 3 then
         return false, 'no_permission'
     end
     
-    local targetCitizenid = Target.PlayerData.citizenid
+    -- Usar advance-manager para contratar empleado
+    local success, message = business.hireEmployee(shopId, targetId, 0) -- Grade 0 = rank 1
     
-    if shop.employees[targetCitizenid] then
-        return false, 'already_employee'
+    if success then
+        TriggerClientEvent('vehicleshop:employeeUpdate', targetId, shopId, 'hired')
+        return true
+    else
+        return false, message
     end
-    
-    database.addEmployee(shopId, targetCitizenid, 1)
-    
-    TriggerClientEvent('vehicleshop:employeeUpdate', targetId, shopId, 'hired')
-    
-    return true
 end)
 
 lib.callback.register('vehicleshop:fireEmployee', function(source, shopId, targetCitizenid)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local playerRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 3 then
+    if playerRank < 3 then
         return false, 'no_permission'
     end
     
-    if targetCitizenid == shop.owner then
+    local businessData = business.getBusinessByShop(shopId)
+    if not businessData then return false end
+    
+    if targetCitizenid == businessData.owner then
         return false, 'cannot_fire_owner'
     end
     
@@ -93,31 +79,35 @@ lib.callback.register('vehicleshop:fireEmployee', function(source, shopId, targe
         return false, 'cannot_fire_self'
     end
     
-    database.removeEmployee(shopId, targetCitizenid)
+    -- Usar advance-manager para despedir empleado
+    local success, message = business.fireEmployee(shopId, targetCitizenid)
     
-    local targetPlayer = QBCore.Functions.GetPlayerByCitizenId(targetCitizenid)
-    if targetPlayer then
-        TriggerClientEvent('vehicleshop:employeeUpdate', targetPlayer.PlayerData.source, shopId, 'fired')
+    if success then
+        local targetPlayer = QBCore.Functions.GetPlayerByCitizenId(targetCitizenid)
+        if targetPlayer then
+            TriggerClientEvent('vehicleshop:employeeUpdate', targetPlayer.PlayerData.source, shopId, 'fired')
+        end
+        return true
+    else
+        return false, message
     end
-    
-    return true
 end)
 
 lib.callback.register('vehicleshop:updateEmployeeRank', function(source, shopId, targetCitizenid, newRank)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local playerRank = business.getEmployeeRank(citizenid, shopId)
     
-    if shop.owner ~= citizenid and (not employee or employee.rank < 4) then
+    if playerRank < 4 then
         return false, 'no_permission'
     end
     
-    if targetCitizenid == shop.owner then
+    local businessData = business.getBusinessByShop(shopId)
+    if not businessData then return false end
+    
+    if targetCitizenid == businessData.owner then
         return false, 'cannot_change_owner_rank'
     end
     
@@ -125,44 +115,38 @@ lib.callback.register('vehicleshop:updateEmployeeRank', function(source, shopId,
         return false, 'invalid_rank'
     end
     
-    database.updateEmployeeRank(shopId, targetCitizenid, newRank)
+    -- Usar advance-manager para actualizar grade (rank - 1)
+    local success, message = business.updateEmployeeGrade(shopId, targetCitizenid, newRank - 1)
     
-    local targetPlayer = QBCore.Functions.GetPlayerByCitizenId(targetCitizenid)
-    if targetPlayer then
-        TriggerClientEvent('vehicleshop:employeeUpdate', targetPlayer.PlayerData.source, shopId, 'rank_changed', newRank)
+    if success then
+        local targetPlayer = QBCore.Functions.GetPlayerByCitizenId(targetCitizenid)
+        if targetPlayer then
+            TriggerClientEvent('vehicleshop:employeeUpdate', targetPlayer.PlayerData.source, shopId, 'rank_changed', newRank)
+        end
+        return true
+    else
+        return false, message
     end
-    
-    return true
 end)
 
 lib.callback.register('vehicleshop:getEmployeeRank', function(source, shopId)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return 0 end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return 0 end
-    
     local citizenid = Player.PlayerData.citizenid
     
-    if shop.owner == citizenid then
-        return 4
-    end
-    
-    local employee = shop.employees[citizenid]
-    return employee and employee.rank or 0
+    -- Usar advance-manager para obtener el rank del empleado
+    return business.getEmployeeRank(citizenid, shopId)
 end)
 
 lib.callback.register('vehicleshop:getCommissionRate', function(source, shopId)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return 0 end
     
-    local shop = GlobalState.VehicleShops[shopId]
-    if not shop then return 0 end
-    
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee then return 0 end
+    if employeeRank == 0 then return 0 end
     
     local commissionRates = {
         [1] = 0.05,
@@ -171,7 +155,7 @@ lib.callback.register('vehicleshop:getCommissionRate', function(source, shopId)
         [4] = 0.15
     }
     
-    return commissionRates[employee.rank] or 0.05
+    return commissionRates[employeeRank] or 0.05
 end)
 
 return employees
