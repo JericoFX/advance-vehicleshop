@@ -97,6 +97,26 @@ function database.init()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
+    MySQL.query([[
+        CREATE TABLE IF NOT EXISTS `vehicleshop_transports` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `shop_id` INT(11) NOT NULL,
+            `player_id` INT(11) NOT NULL,
+            `vehicles` TEXT NOT NULL,
+            `total_cost` DECIMAL(10, 2) NOT NULL,
+            `transport_type` ENUM('delivery', 'trailer') NOT NULL,
+            `status` ENUM('pending', 'ready', 'in_transit', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `delivery_time` TIMESTAMP NULL DEFAULT NULL,
+            `completed_at` TIMESTAMP NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            INDEX `shop_id` (`shop_id`),
+            INDEX `player_id` (`player_id`),
+            INDEX `status` (`status`),
+            FOREIGN KEY (`shop_id`) REFERENCES `vehicleshops`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
     database.loadShops()
 end
 
