@@ -1,5 +1,6 @@
 local warehouse = {}
 local QBCore = exports['qb-core']:GetCoreObject()
+local shopsClient = lib.require('modules.shops.client')
 local warehouseZone = nil
 local insideWarehouse = false
 local warehouseCamera = nil
@@ -104,13 +105,22 @@ end
 function warehouse.openWarehouseMenu()
     local stock = lib.callback.await('vehicleshop:getWarehouseStock', false)
     local options = {}
-    
+
+    if not stock or next(stock) == nil then
+        lib.notify({
+            title = locale('warehouse.title'),
+            description = locale('warehouse.no_stock_available'),
+            type = 'info'
+        })
+        return
+    end
+
     for model, data in pairs(stock) do
         table.insert(options, {
             title = data.name,
-            description = string.format('%s | %s: $%s | %s: %d', 
-                data.brand, 
-                locale('warehouse.price'), 
+            description = string.format('%s | %s: $%s | %s: %d',
+                data.brand,
+                locale('warehouse.price'),
                 data.currentPrice,
                 locale('warehouse.stock'),
                 data.stock
@@ -174,7 +184,7 @@ function warehouse.showCategoryVehicles(category)
 end
 
 function warehouse.previewVehicle(model, data)
-    local shopId = lib.require('modules.shops.client').getCurrentShop()
+    local shopId = shopsClient.getCurrentShop()
     if not shopId then
         lib.notify({
             title = locale('ui.error'),
@@ -222,8 +232,16 @@ function warehouse.showPurchaseOptions(model, data)
 end
 
 function warehouse.directPurchase(model, data)
-    local shopId = lib.require('modules.shops.client').getCurrentShop()
-    
+    local shopId = shopsClient.getCurrentShop()
+    if not shopId then
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('warehouse.no_shop_selected'),
+            type = 'error'
+        })
+        return
+    end
+
     local input = lib.inputDialog(locale('warehouse.purchase'), {
         {
             type = 'number',
@@ -238,7 +256,7 @@ function warehouse.directPurchase(model, data)
     if input then
         local amount = input[1]
         local success, reason = lib.callback.await('vehicleshop:purchaseFromWarehouse', false, shopId, model, amount)
-        
+
         if success then
             lib.notify({
                 title = locale('ui.success'),
@@ -257,8 +275,16 @@ function warehouse.directPurchase(model, data)
 end
 
 function warehouse.createTransport(model, data)
-    local shopId = lib.require('modules.shops.client').getCurrentShop()
-    
+    local shopId = shopsClient.getCurrentShop()
+    if not shopId then
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('warehouse.no_shop_selected'),
+            type = 'error'
+        })
+        return
+    end
+
     local input = lib.inputDialog(locale('warehouse.transport_setup'), {
         {
             type = 'number',
