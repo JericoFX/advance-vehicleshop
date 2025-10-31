@@ -79,9 +79,9 @@ end
 
 function warehouse.startRefreshTimer()
     if refreshTimer then
-        SetTimeout(refreshTimer, function() end)
+        ClearTimeout(refreshTimer)
     end
-    
+
     refreshTimer = SetTimeout(Config.WarehouseRefreshTime, function()
         warehouse.refreshStock()
         warehouse.startRefreshTimer()
@@ -107,10 +107,15 @@ end)
 lib.callback.register('vehicleshop:purchaseFromWarehouse', function(source, shopId, model, amount)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
-    
+
+    amount = tonumber(amount)
+    if not amount or amount < 1 then
+        return false, 'invalid_amount'
+    end
+
     local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
     if not isEmployee then return false end
-    
+
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return false end
     
@@ -126,13 +131,14 @@ lib.callback.register('vehicleshop:purchaseFromWarehouse', function(source, shop
     if shop.funds < totalCost then
         return false, 'insufficient_funds'
     end
-    
+
     database.updateShop(shopId, 'funds', shop.funds - totalCost)
     database.addStock(shopId, model, vehicle.currentPrice, amount)
-    
+
     stock[model].stock = stock[model].stock - amount
+    stock[model].lastUpdate = os.time()
     GlobalState.WarehouseStock = stock
-    
+
     return true
 end)
 
