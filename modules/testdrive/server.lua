@@ -41,14 +41,18 @@ function testdrive.setupEventHandlers()
         local source = source
         local Player = QBCore.Functions.GetPlayer(source)
         if not Player then return end
-        
+
         local citizenid = Player.PlayerData.citizenid
-        if activeTestDrives[citizenid] then
+        local testDriveData = activeTestDrives[citizenid]
+
+        if testDriveData then
             activeTestDrives[citizenid] = nil
-            
+
             lib.logger(source, 'testDriveEnded', {
                 reason = reason,
-                duration = os.time() - (activeTestDrives[citizenid]?.startTime or os.time())
+                duration = os.time() - testDriveData.startTime,
+                model = testDriveData.model,
+                vehicleNetId = testDriveData.vehicleNetId
             })
         end
     end)
