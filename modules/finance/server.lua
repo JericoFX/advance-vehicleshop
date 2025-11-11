@@ -42,16 +42,23 @@ end
 
 function finance.recordPayment(loanId, amount)
     MySQL.query.await([[
-        UPDATE vehicle_financing 
+        UPDATE vehicle_financing
         SET remaining_amount = remaining_amount - monthly_payment,
             months_remaining = months_remaining - 1,
             last_payment = NOW(),
             next_payment = DATE_ADD(NOW(), INTERVAL 1 MONTH)
         WHERE id = ?
     ]], {loanId})
-    
+
+    MySQL.update.await([[ 
+        UPDATE vehicle_financing_missed
+        SET processed = 1,
+            processed_at = NOW()
+        WHERE loan_id = ? AND processed = 0
+    ]], {loanId})
+
     local result = MySQL.query.await('SELECT months_remaining FROM vehicle_financing WHERE id = ?', {loanId})
-    
+
     if result[1] and result[1].months_remaining <= 0 then
         MySQL.update.await('UPDATE vehicle_financing SET status = ? WHERE id = ?', {'paid', loanId})
     end
@@ -75,13 +82,16 @@ end
 
 function finance.processOfflinePayment(loan)
     local playerData = MySQL.query.await('SELECT money FROM players WHERE citizenid = ?', {loan.citizenid})
-    
+
     if playerData[1] then
-        local bankMoney = json.decode(playerData[1].money).bank or 0
-        
+        local accountData = json.decode(playerData[1].money or '{}') or {}
+        local bankMoney = accountData.bank or 0
+
         if bankMoney >= loan.monthly_payment then
+            accountData.bank = bankMoney - loan.monthly_payment
+
             MySQL.update.await('UPDATE players SET money = ? WHERE citizenid = ?', {
-                json.encode({bank = bankMoney - loan.monthly_payment}),
+                json.encode(accountData),
                 loan.citizenid
             })
             finance.recordPayment(loan.id, loan.monthly_payment)
@@ -123,56 +133,44 @@ end)
 lib.callback.register('vehicleshop:makeExtraPayment', function(source, loanId, amount)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
-    
-    local loan = MySQL.query.await('SELECT * FROM vehicle_financing WHERE id = ? AND citizenid = ?', 
+
+    local loan = MySQL.query.await('SELECT * FROM vehicle_financing WHERE id = ? AND citizenid = ?',
         {loanId, Player.PlayerData.citizenid})
-    
+
     if not loan[1] then return false end
-    
+
     amount = tonumber(amount)
     if not amount or amount <= 0 then return false end
-    
+
     if amount > loan[1].remaining_amount then
         amount = loan[1].remaining_amount
     end
-    
+
     local hasBank = Player.Functions.GetMoney('bank') >= amount
     local hasCash = Player.Functions.GetMoney('cash') >= amount
-    
+
     if not hasBank and not hasCash then
         return false, 'no_money'
     end
-    
+
     if hasBank then
         Player.Functions.RemoveMoney('bank', amount)
     else
         Player.Functions.RemoveMoney('cash', amount)
     end
-    
+
     MySQL.update.await([[
-        UPDATE vehicle_financing 
+        UPDATE vehicle_financing
         SET remaining_amount = remaining_amount - ?
         WHERE id = ?
     ]], {amount, loanId})
-    
+
     if loan[1].remaining_amount - amount <= 0 then
-        MySQL.update.await('UPDATE vehicle_financing SET status = ?, remaining_amount = 0 WHERE id = ?', 
+        MySQL.update.await('UPDATE vehicle_financing SET status = ?, remaining_amount = 0 WHERE id = ?',
             {'paid', loanId})
     end
-    
+
     return true
 end)
-
-MySQL.query([[
-    CREATE TABLE IF NOT EXISTS `vehicle_financing_missed` (
-        `id` INT(11) NOT NULL AUTO_INCREMENT,
-        `loan_id` INT(11) NOT NULL,
-        `missed_date` TIMESTAMP NOT NULL,
-        `amount` INT(11) NOT NULL,
-        `processed` BOOLEAN DEFAULT FALSE,
-        PRIMARY KEY (`id`),
-        FOREIGN KEY (`loan_id`) REFERENCES `vehicle_financing`(`id`) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-]])
 
 return finance

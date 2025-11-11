@@ -5,25 +5,58 @@ local database = lib.require('modules.database.server')
 local activeTransports = {}
 local trailerProtections = {}
 
+local function parseTimestamp(value)
+    if not value then return nil end
+
+    if type(value) == 'number' then
+        return value
+    end
+
+    if type(value) == 'string' then
+        local year, month, day, hour, min, sec = value:match('(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)')
+        if year then
+            return os.time({
+                year = tonumber(year),
+                month = tonumber(month),
+                day = tonumber(day),
+                hour = tonumber(hour),
+                min = tonumber(min),
+                sec = tonumber(sec)
+            })
+        end
+    end
+
+    return nil
+end
+
 function transport.init()
     transport.loadActiveTransports()
     -- Cron job now handles delivery checks
 end
 
 function transport.loadActiveTransports()
-    local result = MySQL.query.await('SELECT * FROM vehicleshop_transports WHERE status = ?', {'pending'})
+    local result = MySQL.query.await([[SELECT * FROM vehicleshop_transports WHERE status IN ('pending', 'ready')]])
     if result then
         for _, transport in ipairs(result) do
+            local deliveryTimestamp = parseTimestamp(transport.delivery_time)
+            local createdTimestamp = parseTimestamp(transport.created_at) or os.time()
+
+            local vehiclesData = json.decode(transport.vehicles)
+            if type(vehiclesData) ~= 'table' then
+                vehiclesData = {}
+            end
+
             activeTransports[transport.id] = {
                 id = transport.id,
                 shopId = transport.shop_id,
                 playerId = transport.player_id,
-                vehicles = json.decode(transport.vehicles),
+                vehicles = vehiclesData,
                 totalCost = transport.total_cost,
                 transportType = transport.transport_type,
                 status = transport.status,
-                createdAt = transport.created_at,
-                deliveryTime = transport.delivery_time
+                createdAt = createdTimestamp,
+                deliveryTime = transport.delivery_time,
+                deliveryTimestamp = deliveryTimestamp
             }
         end
     end
@@ -33,9 +66,9 @@ end
 
 function transport.checkDeliveries()
     local currentTime = os.time()
-    
+
     for transportId, data in pairs(activeTransports) do
-        if data.status == 'pending' and currentTime >= data.deliveryTime then
+        if data.status == 'pending' and data.deliveryTimestamp and currentTime >= data.deliveryTimestamp then
             transport.completeDelivery(transportId)
         end
     end
@@ -45,15 +78,24 @@ function transport.completeDelivery(transportId)
     local transportData = activeTransports[transportId]
     if not transportData then return end
     
-    for _, vehicle in ipairs(transportData.vehicles) do
+    for _, vehicle in ipairs(transportData.vehicles or {}) do
         database.addStock(transportData.shopId, vehicle.model, vehicle.price, vehicle.amount)
     end
-    
-    MySQL.update.await('UPDATE vehicleshop_transports SET status = ? WHERE id = ?', {'completed', transportId})
-    
+
+    MySQL.update.await('UPDATE vehicleshop_transports SET status = ?, completed_at = NOW() WHERE id = ?', {'completed', transportId})
+
     activeTransports[transportId] = nil
-    
-    TriggerClientEvent('vehicleshop:deliveryCompleted', transportData.playerId, transportData.vehicles)
+
+    if transportData.playerId and GetPlayerName(transportData.playerId) then
+        TriggerClientEvent('vehicleshop:deliveryCompleted', transportData.playerId, transportData.vehicles)
+    end
+
+    lib.logger(transportData.playerId, 'transportDeliveryCompleted', {
+        transportId = transportId,
+        shopId = transportData.shopId,
+        vehicles = transportData.vehicles,
+        transportType = transportData.transportType
+    })
 end
 
 RegisterNetEvent('vehicleshop:createTransport')
@@ -70,7 +112,6 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     if not shop then return end
     
     local totalCost = 0
-    local totalVehicles = 0
     local warehouseStock = GlobalState.WarehouseStock or {}
     
     for _, vehicle in ipairs(vehicles) do
@@ -86,60 +127,82 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
         end
         
         totalCost = totalCost + cost
-        totalVehicles = totalVehicles + vehicle.amount
     end
     
     if shop.funds < totalCost then
         TriggerClientEvent('vehicleshop:notify', source, 'insufficient_funds')
         return
     end
-    
+
     local deliveryTime = os.time()
-    if transportType == 'delivery' then
-        deliveryTime = deliveryTime + (isExpress and Config.Transport.expressDeliveryTime or Config.Transport.deliveryTime) / 1000
-    elseif transportType == 'trailer' then
-        deliveryTime = deliveryTime + 300
+    local createdTimestamp = deliveryTime
+    local deliveryTimestamp
+
+    local payloadVehicles = {}
+    for _, vehicle in ipairs(vehicles) do
+        payloadVehicles[#payloadVehicles + 1] = {
+            model = vehicle.model,
+            amount = vehicle.amount,
+            price = vehicle.price,
+            name = vehicle.name
+        }
     end
-    
+
+    if transportType == 'delivery' then
+        local delay = (isExpress and Config.Transport.expressDeliveryTime or Config.Transport.deliveryTime) / 1000
+        deliveryTimestamp = deliveryTime + math.max(1, math.floor(delay))
+    elseif transportType == 'trailer' then
+        deliveryTimestamp = deliveryTime + 300
+    end
+
+    local createdAt = os.date('%Y-%m-%d %H:%M:%S', createdTimestamp)
+    local deliveryAt = deliveryTimestamp and os.date('%Y-%m-%d %H:%M:%S', deliveryTimestamp) or nil
+
     local transportId = MySQL.insert.await([[
         INSERT INTO vehicleshop_transports (shop_id, player_id, vehicles, total_cost, transport_type, status, created_at, delivery_time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         shopId,
-        Player.PlayerData.source,
-        json.encode(vehicles),
+        source,
+        json.encode(payloadVehicles),
         totalCost,
         transportType,
         transportType == 'delivery' and 'pending' or 'ready',
-        os.time(),
-        deliveryTime
+        createdAt,
+        deliveryAt
     })
-    
+
     if transportId then
         database.updateShop(shopId, 'funds', shop.funds - totalCost)
-        
-        for _, vehicle in ipairs(vehicles) do
-            warehouseStock[vehicle.model].stock = warehouseStock[vehicle.model].stock - vehicle.amount
+        shop.funds = (shop.funds or 0) - totalCost
+
+        for _, vehicle in ipairs(payloadVehicles) do
+            local stockData = warehouseStock[vehicle.model]
+            if stockData then
+                stockData.stock = stockData.stock - vehicle.amount
+            end
         end
         GlobalState.WarehouseStock = warehouseStock
-        
-        if transportType == 'delivery' then
-            activeTransports[transportId] = {
-                id = transportId,
-                shopId = shopId,
-                playerId = Player.PlayerData.source,
-                vehicles = vehicles,
-                totalCost = totalCost,
-                transportType = transportType,
-                status = 'pending',
-                createdAt = os.time(),
-                deliveryTime = deliveryTime
-            }
-        else
-            -- Trailer handling here
+
+        local storedVehicles = json.decode(json.encode(payloadVehicles))
+
+        activeTransports[transportId] = {
+            id = transportId,
+            shopId = shopId,
+            playerId = source,
+            vehicles = storedVehicles,
+            totalCost = totalCost,
+            transportType = transportType,
+            status = transportType == 'delivery' and 'pending' or 'ready',
+            createdAt = createdTimestamp,
+            deliveryTime = deliveryAt,
+            deliveryTimestamp = deliveryTimestamp
+        }
+
+        if transportType ~= 'delivery' then
             TriggerClientEvent('vehicleshop:trailerReady', source, transportId)
         end
-        
+
         TriggerClientEvent('vehicleshop:notify', source, 'transport_created')
     else
         TriggerClientEvent('vehicleshop:notify', source, 'database_error')
@@ -157,30 +220,31 @@ lib.callback.register('vehicleshop:payTrailerCommission', function(source, trans
         if playerMoney < totalCost then
             return false, 'insufficient_cash'
         end
-        
+
         Player.Functions.RemoveMoney('cash', totalCost, 'trailer-commission')
-        
-        lib.logger(Player.PlayerData.source, 'payTrailerCommission', {
+
+        lib.logger(source, 'payTrailerCommission', {
             transportId = transportId,
             amount = totalCost,
             method = 'cash'
         })
-        
+
         return true
     elseif paymentMethod == 'shop_funds' then
         local transportData = activeTransports[transportId]
         if not transportData then return false, 'transport_not_found' end
-        
+
         local shop = GlobalState.VehicleShops[transportData.shopId]
         if not shop then return false, 'shop_not_found' end
-        
+
         if shop.funds < totalCost then
             return false, 'insufficient_shop_funds'
         end
-        
+
         database.updateShop(transportData.shopId, 'funds', shop.funds - totalCost)
-        
-        lib.logger(Player.PlayerData.source, 'payTrailerCommission', {
+        shop.funds = shop.funds - totalCost
+
+        lib.logger(source, 'payTrailerCommission', {
             transportId = transportId,
             shopId = transportData.shopId,
             amount = totalCost,
@@ -197,7 +261,7 @@ lib.callback.register('vehicleshop:getTransportData', function(source, transport
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return nil end
     
-    local result = MySQL.query.await('SELECT * FROM vehicleshop_transports WHERE id = ? AND player_id = ?', {transportId, Player.PlayerData.source})
+    local result = MySQL.query.await('SELECT * FROM vehicleshop_transports WHERE id = ? AND player_id = ?', {transportId, source})
     if result and result[1] then
         local data = result[1]
         return {

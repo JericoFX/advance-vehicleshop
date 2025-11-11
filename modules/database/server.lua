@@ -98,6 +98,40 @@ function database.init()
     ]])
 
     MySQL.query([[
+        CREATE TABLE IF NOT EXISTS `vehicle_financing_missed` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `loan_id` INT(11) NOT NULL,
+            `missed_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `amount` INT(11) NOT NULL,
+            `processed` TINYINT(1) NOT NULL DEFAULT 0,
+            `processed_at` TIMESTAMP NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            INDEX `loan_id_idx` (`loan_id`),
+            CONSTRAINT `fk_financing_missed_loan`
+                FOREIGN KEY (`loan_id`) REFERENCES `vehicle_financing`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query([[
+        CREATE TABLE IF NOT EXISTS `vehicleshop_sales_archive` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `original_sale_id` INT(11) NOT NULL,
+            `shop_id` INT(11) NOT NULL,
+            `seller` VARCHAR(50) NOT NULL,
+            `buyer` VARCHAR(50) NOT NULL,
+            `model` VARCHAR(50) NOT NULL,
+            `price` INT(11) NOT NULL,
+            `commission` INT(11) NOT NULL DEFAULT 0,
+            `finance_data` LONGTEXT DEFAULT NULL,
+            `sold_at` TIMESTAMP NOT NULL,
+            `archived_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `original_sale_id` (`original_sale_id`),
+            INDEX `shop_id_idx` (`shop_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query([[
         CREATE TABLE IF NOT EXISTS `vehicleshop_transports` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
             `shop_id` INT(11) NOT NULL,
