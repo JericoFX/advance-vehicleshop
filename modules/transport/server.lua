@@ -104,8 +104,7 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return end
     
-    local employees = lib.require('modules.employees.server')
-    local isEmployee = employees.isShopEmployee(source, shopId)
+    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
     if not isEmployee then return end
     
     local shop = GlobalState.VehicleShops[shopId]

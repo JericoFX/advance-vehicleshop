@@ -1,6 +1,30 @@
 local vehicles = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
+
+local function matchFinanceOption(financeData)
+    if type(financeData) ~= 'table' then
+        return nil
+    end
+
+    for _, option in ipairs(Config.FinanceOptions or {}) do
+        if financeData.label and financeData.label == option.label then
+            return option
+        end
+
+        if financeData.downPayment and financeData.interest and financeData.months then
+            local downMatch = math.abs(financeData.downPayment - option.downPayment) < 0.0001
+            local interestMatch = math.abs(financeData.interest - option.interest) < 0.0001
+            local monthsMatch = financeData.months == option.months
+            if downMatch and interestMatch and monthsMatch then
+                return option
+            end
+        end
+    end
+
+    return nil
+end
 
 lib.callback.register('vehicleshop:getShopVehicles', function(source, shopId)
     return database.getStock(shopId)
@@ -18,9 +42,9 @@ lib.callback.register('vehicleshop:addDisplayVehicle', function(source, shopId, 
     if not shop then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 2 then
+    if employeeRank < 2 then
         return false, 'no_permission'
     end
     
@@ -76,9 +100,9 @@ lib.callback.register('vehicleshop:removeDisplayVehicle', function(source, shopI
     if not shop then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 2 then
+    if employeeRank < 2 then
         return false, 'no_permission'
     end
     
@@ -96,9 +120,9 @@ lib.callback.register('vehicleshop:updateVehicleProps', function(source, shopId,
     if not shop then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
     
-    if not employee or employee.rank < 2 then
+    if employeeRank < 2 then
         return false, 'no_permission'
     end
     
@@ -136,8 +160,16 @@ lib.callback.register('vehicleshop:purchaseVehicle', function(source, shopId, mo
     local totalPrice = vehicleStock.price
     local downPayment = totalPrice
     
-    if paymentMethod == 'finance' and financeData then
+    if paymentMethod == 'finance' then
+        local option = matchFinanceOption(financeData)
+        if not option then
+            return false, 'invalid_finance'
+        end
+        financeData = option
         downPayment = math.floor(totalPrice * financeData.downPayment)
+        if downPayment < 1 then
+            return false, 'invalid_finance'
+        end
     end
     
     local hasBank = Player.Functions.GetMoney('bank') >= downPayment

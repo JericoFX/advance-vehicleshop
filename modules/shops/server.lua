@@ -1,10 +1,25 @@
 local module = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
+
+local function shopNameExists(name)
+    for _, shop in pairs(GlobalState.VehicleShops or {}) do
+        if shop.name == name then
+            return true
+        end
+    end
+    return false
+end
 
 lib.callback.register('vehicleshop:createShop', function(source, data)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
+
+    local isAdmin = QBCore.Functions.HasPermission(source, 'admin')
+    if not isAdmin then
+        return false
+    end
     
     if not data.name or not data.price or not data.locations then
         return false
@@ -26,12 +41,23 @@ lib.callback.register('vehicleshop:createShop', function(source, data)
     data.unload = data.locations.unload
     data.stock = data.locations.stock
     
-    local shops = GlobalState.VehicleShops
-    if shops[data.name] then
+    if shopNameExists(data.name) then
         return false
     end
     
-    return database.createShop(data)
+    local shopId = database.createShop(data)
+    if not shopId then
+        return false
+    end
+
+    if data.owner then
+        local existingBusiness = business.getBusinessByShop(shopId)
+        if not existingBusiness then
+            business.createBusiness(shopId, data.owner, data.name)
+        end
+    end
+
+    return shopId
 end)
 
 lib.callback.register('vehicleshop:purchaseShop', function(source, shopId)
@@ -59,6 +85,11 @@ lib.callback.register('vehicleshop:purchaseShop', function(source, shopId)
     
     database.updateShop(shopId, 'owner', citizenid)
     database.addEmployee(shopId, citizenid, 4)
+
+    local existingBusiness = business.getBusinessByShop(shopId)
+    if not existingBusiness then
+        business.createBusiness(shopId, citizenid, shop.name)
+    end
     
     return true
 end)
@@ -84,13 +115,8 @@ lib.callback.register('vehicleshop:isShopEmployee', function(source, shopId)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
     
-    local shops = GlobalState.VehicleShops
-    local shop = shops[shopId]
-    
-    if not shop then return false end
-    
     local citizenid = Player.PlayerData.citizenid
-    return shop.employees[citizenid] ~= nil
+    return business.getEmployeeRank(citizenid, shopId) > 0
 end)
 
 lib.callback.register('vehicleshop:deleteShop', function(source, shopId)
