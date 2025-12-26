@@ -24,6 +24,10 @@ function testdrive.setupEventHandlers()
         local Player = QBCore.Functions.GetPlayer(source)
         if not Player then return end
         
+        local vehicle = NetworkGetEntityFromNetworkId(vehicleNetId)
+        if not vehicle or not DoesEntityExist(vehicle) then return end
+        if NetworkGetEntityOwner(vehicle) ~= source then return end
+        
         activeTestDrives[Player.PlayerData.citizenid] = {
             vehicleNetId = vehicleNetId,
             model = model,
@@ -45,7 +49,7 @@ function testdrive.setupEventHandlers()
         local citizenid = Player.PlayerData.citizenid
         local testDriveData = activeTestDrives[citizenid]
 
-        if testDriveData then
+        if testDriveData and testDriveData.vehicleNetId == vehicleNetId then
             activeTestDrives[citizenid] = nil
 
             lib.logger(source, 'testDriveEnded', {
@@ -64,7 +68,7 @@ function testdrive.handleDisconnect(citizenid, playerId)
     
     -- Try to delete the vehicle if it still exists
     local vehicle = NetworkGetEntityFromNetworkId(testDriveData.vehicleNetId)
-    if DoesEntityExist(vehicle) then
+    if DoesEntityExist(vehicle) and NetworkGetEntityOwner(vehicle) == playerId then
         DeleteEntity(vehicle)
     end
     
@@ -84,7 +88,7 @@ function testdrive.startCleanupTimer()
             -- Clean up test drives older than max time + 5 minutes
             if currentTime - data.startTime > (Config.MaxTestDriveTime + 300) then
                 local vehicle = NetworkGetEntityFromNetworkId(data.vehicleNetId)
-                if DoesEntityExist(vehicle) then
+                if DoesEntityExist(vehicle) and NetworkGetEntityOwner(vehicle) == data.playerId then
                     DeleteEntity(vehicle)
                 end
                 

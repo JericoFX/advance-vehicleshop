@@ -59,6 +59,36 @@ function garage.registerCallbacks()
         transport.netIds[vehicleType] = vehicleNetId
         return true
     end)
+
+    lib.callback.register('vehicleshop:registerLoadedVehicle', function(source, transportId, vehicleNetId, vehicleModel, props)
+        local Player = QBCore.Functions.GetPlayer(source)
+        if not Player then return false end
+        
+        local transport = activeTransports[transportId]
+        if not transport or transport.owner ~= Player.PlayerData.citizenid then
+            return false
+        end
+        
+        if type(vehicleModel) ~= 'string' or vehicleModel == '' then
+            return false
+        end
+        
+        local entity = NetworkGetEntityFromNetworkId(vehicleNetId)
+        if not entity or not DoesEntityExist(entity) then
+            return false
+        end
+        
+        if NetworkGetEntityOwner(entity) ~= source then
+            return false
+        end
+        
+        transport.loadedVehicles[vehicleNetId] = {
+            model = vehicleModel,
+            props = props
+        }
+        
+        return true
+    end)
     
     lib.callback.register('vehicleshop:canAccessTransport', function(source, transportId)
         local Player = QBCore.Functions.GetPlayer(source)
@@ -77,7 +107,7 @@ function garage.registerCallbacks()
         return isEmployee
     end)
     
-    lib.callback.register('vehicleshop:unloadVehicleToGround', function(source, transportId, vehicleModel)
+    lib.callback.register('vehicleshop:unloadVehicleToGround', function(source, transportId, vehicleNetId, vehicleModel)
         local Player = QBCore.Functions.GetPlayer(source)
         if not Player then return false end
         
@@ -87,16 +117,34 @@ function garage.registerCallbacks()
         local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, transport.shopId)
         if not isEmployee then return false end
         
+        local loaded = transport.loadedVehicles[vehicleNetId]
+        if not loaded or loaded.model ~= vehicleModel then
+            return false, 'invalid_vehicle'
+        end
+        
+        local entity = NetworkGetEntityFromNetworkId(vehicleNetId)
+        if not entity or not DoesEntityExist(entity) then
+            return false, 'invalid_vehicle'
+        end
+        
+        if NetworkGetEntityOwner(entity) ~= source then
+            return false, 'invalid_vehicle'
+        end
+        
         -- Create temporary key for the unloaded vehicle
         local keyId = garage.generateKeyId()
         temporaryKeys[keyId] = {
             id = keyId,
             shopId = transport.shopId,
             vehicleModel = vehicleModel,
+            vehicleNetId = vehicleNetId,
+            transportId = transportId,
             createdBy = Player.PlayerData.citizenid,
             createdAt = os.time(),
             expiresAt = os.time() + (KEY_EXPIRATION_TIME / 1000)
         }
+        
+        transport.loadedVehicles[vehicleNetId] = nil
         
         -- Give keys to all shop employees
         garage.giveKeysToShopEmployees(transport.shopId, keyId, vehicleModel)
@@ -104,7 +152,7 @@ function garage.registerCallbacks()
         return true, keyId
     end)
     
-    lib.callback.register('vehicleshop:storeVehicleInStock', function(source, shopId, vehicleModel, props)
+    lib.callback.register('vehicleshop:storeVehicleInStock', function(source, shopId, vehicleModel, props, keyId, vehicleNetId, transportId)
         local Player = QBCore.Functions.GetPlayer(source)
         if not Player then return false end
         
@@ -112,7 +160,19 @@ function garage.registerCallbacks()
         if not isEmployee then return false end
         
         -- Check if player has valid keys for this vehicle
-        local hasValidKey = garage.hasValidKey(Player.PlayerData.citizenid, shopId, vehicleModel)
+        local citizenid = Player.PlayerData.citizenid
+        local hasValidKey = garage.hasValidKey(citizenid, shopId, vehicleModel, keyId, vehicleNetId)
+        
+        if not hasValidKey and transportId and vehicleNetId then
+            local transport = activeTransports[transportId]
+            if transport and transport.owner == citizenid then
+                local loaded = transport.loadedVehicles[vehicleNetId]
+                if loaded and loaded.model == vehicleModel then
+                    transport.loadedVehicles[vehicleNetId] = nil
+                    hasValidKey = true
+                end
+            end
+        end
         if not hasValidKey then
             return false, 'no_valid_keys'
         end
@@ -126,7 +186,9 @@ function garage.registerCallbacks()
         database.addStock(shopId, vehicleModel, currentPrice, 1)
         
         -- Remove temporary key after successful storage
-        garage.removeTemporaryKey(shopId, vehicleModel)
+        if keyId then
+            garage.removeTemporaryKey(shopId, vehicleModel, keyId)
+        end
         
         return true
     end)
@@ -201,30 +263,33 @@ function garage.giveKeysToShopEmployees(shopId, keyId, vehicleModel)
     end
 end
 
-function garage.hasValidKey(citizenid, shopId, vehicleModel)
-    for keyId, key in pairs(temporaryKeys) do
-        if key.shopId == shopId and key.vehicleModel == vehicleModel then
-            -- Check if key is still valid (not expired)
-            if os.time() < key.expiresAt then
-                return true
-            else
-                -- Remove expired key
-                temporaryKeys[keyId] = nil
-            end
-        end
+function garage.hasValidKey(citizenid, shopId, vehicleModel, keyId, vehicleNetId)
+    if not keyId or not temporaryKeys[keyId] then
+        return false
     end
-    return false
+    
+    local key = temporaryKeys[keyId]
+    if key.shopId ~= shopId or key.vehicleModel ~= vehicleModel then
+        return false
+    end
+    
+    if key.vehicleNetId and vehicleNetId and key.vehicleNetId ~= vehicleNetId then
+        return false
+    end
+    
+    if os.time() >= key.expiresAt then
+        temporaryKeys[keyId] = nil
+        return false
+    end
+    
+    return true
 end
 
-function garage.removeTemporaryKey(shopId, vehicleModel)
-    for keyId, key in pairs(temporaryKeys) do
-        if key.shopId == shopId and key.vehicleModel == vehicleModel then
-            temporaryKeys[keyId] = nil
-            
-            -- Notify employees that key was removed
-            garage.notifyKeyRemoval(shopId, keyId, vehicleModel)
-            break
-        end
+function garage.removeTemporaryKey(shopId, vehicleModel, keyId)
+    local key = temporaryKeys[keyId]
+    if key and key.shopId == shopId and key.vehicleModel == vehicleModel then
+        temporaryKeys[keyId] = nil
+        garage.notifyKeyRemoval(shopId, keyId, vehicleModel)
     end
 end
 
@@ -300,18 +365,12 @@ end)
 function garage.sendActiveKeysToPlayer(playerId, citizenid)
     local Player = QBCore.Functions.GetPlayer(playerId)
     if not Player then return end
-    
-    -- Find all shops where player is an employee
-    local playerShops = {}
-    for shopId, shop in pairs(GlobalState.VehicleShops) do
-        if shop.employees[citizenid] then
-            playerShops[shopId] = true
-        end
-    end
+    local shops = GlobalState.VehicleShops or {}
     
     -- Send active keys for player's shops
     for keyId, key in pairs(temporaryKeys) do
-        if playerShops[key.shopId] and os.time() < key.expiresAt then
+        local shop = shops[key.shopId]
+        if shop and shop.employees and shop.employees[citizenid] and os.time() < key.expiresAt then
             local remainingTime = (key.expiresAt - os.time()) * 1000
             TriggerClientEvent('vehicleshop:receiveTemporaryKey', playerId, keyId, key.vehicleModel, remainingTime)
         end

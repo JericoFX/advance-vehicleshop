@@ -1,5 +1,6 @@
 local transport = {}
 local QBCore = exports['qb-core']:GetCoreObject()
+local shops = lib.require('modules.shops.client')
 
 local currentTrailer = nil
 local currentTruck = nil
@@ -342,7 +343,7 @@ end
 function transport.unloadTrailer()
     if not currentTrailer or #loadedVehicles == 0 then return end
     
-    local shopId = lib.callback.await('vehicleshop:getCurrentShop', false)
+    local shopId = shops.getCurrentShop()
     if not shopId then
         lib.notify({
             title = locale('ui.error'),
@@ -358,7 +359,9 @@ function transport.unloadTrailer()
         end
     end
     
-    TriggerServerEvent('vehicleshop:unloadTrailer', NetworkGetNetworkIdFromEntity(currentTrailer), shopId)
+    if transportData and transportData.id then
+        TriggerServerEvent('vehicleshop:unloadTrailer', transportData.id, shopId)
+    end
     
     loadedVehicles = {}
     
@@ -403,8 +406,8 @@ AddEventHandler('onResourceStop', function(resource)
 end)
 
 AddEventHandler('playerDropped', function()
-    if currentTrailer then
-        TriggerServerEvent('vehicleshop:protectTrailerOnDisconnect', NetworkGetNetworkIdFromEntity(currentTrailer))
+    if currentTrailer and transportData and transportData.id then
+        TriggerServerEvent('vehicleshop:protectTrailerOnDisconnect', transportData.id, NetworkGetNetworkIdFromEntity(currentTrailer))
     end
 end)
 
