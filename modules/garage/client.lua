@@ -199,6 +199,18 @@ function garage.spawnTrailer(shopId)
     local shop = GlobalState.VehicleShops[shopId]
     if not shop or not shop.garage then return end
     
+    local success, transportId = lib.callback.await('vehicleshop:spawnTransportVehicle', false, shopId, 'trailer')
+    if not success then
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('transport.spawn_failed'),
+            type = 'error'
+        })
+        return
+    end
+    
+    currentTransportId = transportId
+    
     local coords = shop.garage
     local spawnOffset = vector3(5.0, 0.0, 0.0)
     
@@ -218,17 +230,37 @@ function garage.spawnTrailer(shopId)
         
         TaskWarpPedIntoVehicle(cache.ped, currentTransportVehicle, -1)
         
+        lib.callback.await('vehicleshop:registerTransportVehicle', false, currentTransportId, NetworkGetNetworkIdFromEntity(currentTransportVehicle), 'truck')
+        lib.callback.await('vehicleshop:registerTransportVehicle', false, currentTransportId, NetworkGetNetworkIdFromEntity(currentTrailer), 'trailer')
+        
         lib.notify({
             title = locale('garage.trailer_spawned'),
             description = locale('garage.trailer_spawned_desc'),
             type = 'success'
         })
+    else
+        if currentTransportId then
+            lib.callback.await('vehicleshop:removeTransport', false, currentTransportId)
+        end
+        currentTransportId = nil
     end
 end
 
 function garage.spawnFlatbed(shopId)
     local shop = GlobalState.VehicleShops[shopId]
     if not shop or not shop.garage then return end
+    
+    local success, transportId = lib.callback.await('vehicleshop:spawnTransportVehicle', false, shopId, 'flatbed')
+    if not success then
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('transport.spawn_failed'),
+            type = 'error'
+        })
+        return
+    end
+    
+    currentTransportId = transportId
     
     local coords = shop.garage
     local spawnOffset = vector3(5.0, 0.0, 0.0)
@@ -244,11 +276,18 @@ function garage.spawnFlatbed(shopId)
         
         TaskWarpPedIntoVehicle(cache.ped, currentTransportVehicle, -1)
         
+        lib.callback.await('vehicleshop:registerTransportVehicle', false, currentTransportId, NetworkGetNetworkIdFromEntity(currentTransportVehicle), 'flatbed')
+        
         lib.notify({
             title = locale('garage.flatbed_spawned'),
             description = locale('garage.flatbed_spawned_desc'),
             type = 'success'
         })
+    else
+        if currentTransportId then
+            lib.callback.await('vehicleshop:removeTransport', false, currentTransportId)
+        end
+        currentTransportId = nil
     end
 end
 
@@ -265,6 +304,11 @@ function garage.storeTransportVehicle()
     
     garage.clearLoadedVehicles()
     isTrailerLowered = false
+    
+    if currentTransportId then
+        lib.callback.await('vehicleshop:removeTransport', false, currentTransportId)
+        currentTransportId = nil
+    end
     
     lib.notify({
         title = locale('garage.vehicle_stored'),
@@ -378,6 +422,7 @@ end
 
 function garage.loadVehicleOnTransport(model)
     if not currentTransportVehicle then return end
+    if not currentTransportId then return end
     
     local maxVehicles = currentTrailer and Config.Transport.maxVehiclesPerTrailer or 1
     if #loadedVehicles >= maxVehicles then
@@ -413,12 +458,25 @@ function garage.loadVehicleOnTransport(model)
         SetVehicleEngineOn(vehicle, false, true, true)
         SetVehicleDoorsLocked(vehicle, 2)
         
+        local netId = NetworkGetNetworkIdFromEntity(vehicle)
         table.insert(loadedVehicles, {
             entity = vehicle,
             model = model,
-            netId = NetworkGetNetworkIdFromEntity(vehicle),
+            netId = netId,
             props = lib.getVehicleProperties(vehicle)
         })
+        
+    local registered = lib.callback.await('vehicleshop:registerLoadedVehicle', false, currentTransportId, netId, model, loadedVehicles[#loadedVehicles].props)
+    if not registered then
+        DeleteEntity(vehicle)
+        table.remove(loadedVehicles, #loadedVehicles)
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('transport.load_failed'),
+            type = 'error'
+        })
+        return
+    end
         
         lib.notify({
             title = locale('garage.vehicle_loaded'),
@@ -507,9 +565,22 @@ end
 function garage.unloadSpecificVehicle(index)
     local vehicleData = loadedVehicles[index]
     if not vehicleData then return end
+    if not currentTransportId then return end
     
     local shop = GlobalState.VehicleShops[currentShopId]
     if not shop or not shop.unload then return end
+    
+    local ok, keyId = lib.callback.await('vehicleshop:unloadVehicleToGround', false, currentTransportId, vehicleData.netId, vehicleData.model)
+    if not ok then
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('transport.load_failed'),
+            type = 'error'
+        })
+        return
+    end
+    
+    temporaryKeys[vehicleData.netId] = keyId
     
     if DoesEntityExist(vehicleData.entity) then
         local coords = shop.unload
@@ -544,10 +615,12 @@ function garage.sendVehicleToStock(index, vehicleName)
     local vehicleData = loadedVehicles[index]
     if not vehicleData then return end
     
-    local success = lib.callback.await('vehicleshop:storeVehicleInStock', false, currentShopId, vehicleName:lower(), vehicleData.props)
+    local keyId = temporaryKeys[vehicleData.netId]
+    local success = lib.callback.await('vehicleshop:storeVehicleInStock', false, currentShopId, vehicleData.model, vehicleData.props, keyId, vehicleData.netId, currentTransportId)
     
     if success and DoesEntityExist(vehicleData.entity) then
         DeleteEntity(vehicleData.entity)
+        temporaryKeys[vehicleData.netId] = nil
         lib.notify({
             title = locale('garage.vehicle_stored_stock'),
             description = locale('garage.vehicle_stored_stock_desc', vehicleName),
@@ -588,7 +661,7 @@ function garage.storeVehicleInStock(shopId)
     local modelName = GetDisplayNameFromVehicleModel(model)
     local props = lib.getVehicleProperties(vehicle)
     
-    local success = lib.callback.await('vehicleshop:storeVehicleInStock', false, shopId, modelName:lower(), props)
+    local success = lib.callback.await('vehicleshop:storeVehicleInStock', false, shopId, modelName:lower(), props, nil, nil, nil)
     
     if success then
         DeleteEntity(vehicle)

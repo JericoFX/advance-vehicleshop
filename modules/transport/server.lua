@@ -110,22 +110,54 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return end
     
+    if type(vehicles) ~= 'table' or #vehicles < 1 then
+        TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
+        return
+    end
+    
+    if transportType ~= 'delivery' and transportType ~= 'trailer' then
+        TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
+        return
+    end
+    
+    isExpress = isExpress == true
+    
     local totalCost = 0
     local warehouseStock = GlobalState.WarehouseStock or {}
+    local payloadVehicles = {}
     
     for _, vehicle in ipairs(vehicles) do
+        if type(vehicle) ~= 'table' or type(vehicle.model) ~= 'string' then
+            TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
+            return
+        end
+
+        local amount = tonumber(vehicle.amount)
+        if not amount or amount < 1 then
+            TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
+            return
+        end
+
+        amount = math.floor(amount)
+
         local stockData = warehouseStock[vehicle.model]
-        if not stockData or stockData.stock < vehicle.amount then
+        if not stockData or stockData.stock < amount then
             TriggerClientEvent('vehicleshop:notify', source, 'insufficient_stock')
             return
         end
         
-        local cost = stockData.currentPrice * vehicle.amount
+        local cost = stockData.currentPrice * amount
         if isExpress then
             cost = cost * Config.Transport.expressCostMultiplier
         end
         
         totalCost = totalCost + cost
+        payloadVehicles[#payloadVehicles + 1] = {
+            model = vehicle.model,
+            amount = amount,
+            price = stockData.currentPrice,
+            name = stockData.name or vehicle.name or vehicle.model
+        }
     end
     
     if shop.funds < totalCost then
@@ -136,16 +168,6 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     local deliveryTime = os.time()
     local createdTimestamp = deliveryTime
     local deliveryTimestamp
-
-    local payloadVehicles = {}
-    for _, vehicle in ipairs(vehicles) do
-        payloadVehicles[#payloadVehicles + 1] = {
-            model = vehicle.model,
-            amount = vehicle.amount,
-            price = vehicle.price,
-            name = vehicle.name
-        }
-    end
 
     if transportType == 'delivery' then
         local delay = (isExpress and Config.Transport.expressDeliveryTime or Config.Transport.deliveryTime) / 1000
@@ -208,10 +230,55 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     end
 end)
 
+RegisterNetEvent('vehicleshop:unloadTrailer', function(transportId, shopId)
+    local source = source
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return end
+    
+    local transportData = activeTransports[transportId]
+    if not transportData then return end
+    
+    if transportData.playerId ~= source then return end
+    if transportData.shopId ~= shopId then return end
+    if transportData.transportType ~= 'trailer' then return end
+    if transportData.status ~= 'ready' then return end
+    
+    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
+    if not isEmployee then return end
+    
+    for _, vehicle in ipairs(transportData.vehicles or {}) do
+        database.addStock(transportData.shopId, vehicle.model, vehicle.price, vehicle.amount)
+    end
+    
+    MySQL.update.await('UPDATE vehicleshop_transports SET status = ?, completed_at = NOW() WHERE id = ?', {'completed', transportId})
+    activeTransports[transportId] = nil
+    
+    TriggerClientEvent('vehicleshop:notify', source, 'trailer_unloaded')
+end)
+
+RegisterNetEvent('vehicleshop:protectTrailerOnDisconnect', function(transportId, trailerNetId)
+    local source = source
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return end
+    
+    local transportData = activeTransports[transportId]
+    if not transportData then return end
+    
+    if transportData.playerId ~= source then return end
+    if transportData.transportType ~= 'trailer' then return end
+    
+    transportData.trailerNetId = trailerNetId
+    transportData.trailerProtectedAt = os.time()
+end)
+
 lib.callback.register('vehicleshop:payTrailerCommission', function(source, transportId, totalCost)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false, 'invalid_player' end
     
+    local transportData = activeTransports[transportId]
+    if not transportData then return false, 'transport_not_found' end
+    
+    totalCost = transportData.totalCost
     local paymentMethod = Config.Transport.trailerCommission.paymentMethod
     
     if paymentMethod == 'cash' then
@@ -230,9 +297,6 @@ lib.callback.register('vehicleshop:payTrailerCommission', function(source, trans
 
         return true
     elseif paymentMethod == 'shop_funds' then
-        local transportData = activeTransports[transportId]
-        if not transportData then return false, 'transport_not_found' end
-
         local shop = GlobalState.VehicleShops[transportData.shopId]
         if not shop then return false, 'shop_not_found' end
 
