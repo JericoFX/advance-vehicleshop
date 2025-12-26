@@ -1,3 +1,5 @@
+Yes a lot of IA was involved because i dont want to code for fivem anymore so i just check what an IA can do
+
 # Advanced Vehicle Shop
 
 A comprehensive, modular vehicle shop system for FiveM using QBCore framework with ox_lib integration.
