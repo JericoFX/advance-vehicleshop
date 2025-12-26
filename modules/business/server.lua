@@ -18,7 +18,14 @@ function business.createBusiness(shopId, ownerId, shopName)
 end
 
 function business.getBusinessByShop(shopId)
-    local businesses = exports['advance-manager']:getBusinessByOwner(shopId)
+    local shop = GlobalState.VehicleShops and GlobalState.VehicleShops[shopId]
+    local ownerId = shop and shop.owner
+    if not ownerId then
+        return nil
+    end
+
+    -- TODO(PR): Confirm advance-manager API for shop lookup; using owner-based lookup as fallback.
+    local businesses = exports['advance-manager']:getBusinessByOwner(ownerId)
     if businesses and #businesses > 0 then
         for _, business in pairs(businesses) do
             if business.metadata and business.metadata.shop_id == shopId then
@@ -144,7 +151,13 @@ end
 
 function business.getEmployeeRank(citizenId, shopId)
     local businessData = business.getBusinessByShop(shopId)
-    if not businessData then return 0 end
+    if not businessData then
+        local shop = GlobalState.VehicleShops and GlobalState.VehicleShops[shopId]
+        if shop and shop.employees and shop.employees[citizenId] then
+            return shop.employees[citizenId].rank or 0
+        end
+        return 0
+    end
     
     -- Verificar si es el dueño del negocio
     if businessData.owner == citizenId then
