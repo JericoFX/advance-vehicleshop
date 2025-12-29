@@ -1,9 +1,12 @@
 local transport = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local warehouse = lib.require('modules.warehouse.server')
 
 local activeTransports = {}
 local trailerProtections = {}
+local transportCooldowns = {}
+local TRANSPORT_COOLDOWN_SECONDS = 3
 
 local function parseTimestamp(value)
     if not value then return nil end
@@ -27,6 +30,30 @@ local function parseTimestamp(value)
     end
 
     return nil
+end
+
+local function isOnCooldown(cooldownTable, source, duration)
+    local now = os.time()
+    local last = cooldownTable[source] or 0
+    if now - last < duration then
+        return true
+    end
+    cooldownTable[source] = now
+    return false
+end
+
+local function isNearShopLocation(source, shop, locationKey, radius)
+    if not shop or not shop[locationKey] then
+        return false
+    end
+
+    local ped = GetPlayerPed(source)
+    if not ped then return false end
+
+    local coords = GetEntityCoords(ped)
+    local target = shop[locationKey]
+    local dist = #(coords - vector3(target.x, target.y, target.z))
+    return dist <= (radius or 5.0)
 end
 
 function transport.init()
@@ -54,6 +81,7 @@ function transport.loadActiveTransports()
                 totalCost = transport.total_cost,
                 transportType = transport.transport_type,
                 status = transport.status,
+                commissionPaid = transport.commission_paid == 1,
                 createdAt = createdTimestamp,
                 deliveryTime = transport.delivery_time,
                 deliveryTimestamp = deliveryTimestamp
@@ -103,12 +131,21 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     local source = source
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return end
+
+    if isOnCooldown(transportCooldowns, source, TRANSPORT_COOLDOWN_SECONDS) then
+        TriggerClientEvent('vehicleshop:notify', source, 'cooldown')
+        return
+    end
     
     local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
     if not isEmployee then return end
     
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return end
+    if not isNearShopLocation(source, shop, 'management', Config.ShopTransport and Config.ShopTransport.garageRadius or 3.0) then
+        TriggerClientEvent('vehicleshop:notify', source, 'too_far')
+        return
+    end
     
     if type(vehicles) ~= 'table' or #vehicles < 1 then
         TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
@@ -122,46 +159,59 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     
     isExpress = isExpress == true
     
-    local totalCost = 0
-    local warehouseStock = GlobalState.WarehouseStock or {}
-    local payloadVehicles = {}
-    
-    for _, vehicle in ipairs(vehicles) do
-        if type(vehicle) ~= 'table' or type(vehicle.model) ~= 'string' then
-            TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
-            return
+    local success, payloadVehicles, totalCost = warehouse.withStockLock(function()
+        local total = 0
+        local warehouseStock = GlobalState.WarehouseStock or {}
+        local payload = {}
+
+        for _, vehicle in ipairs(vehicles) do
+            if type(vehicle) ~= 'table' or type(vehicle.model) ~= 'string' then
+                return false, 'invalid_request'
+            end
+
+            local amount = tonumber(vehicle.amount)
+            if not amount or amount < 1 then
+                return false, 'invalid_request'
+            end
+
+            amount = math.floor(amount)
+
+            local stockData = warehouseStock[vehicle.model]
+            if not stockData or stockData.stock < amount then
+                return false, 'insufficient_stock'
+            end
+            
+            local cost = stockData.currentPrice * amount
+            if isExpress then
+                cost = cost * Config.Transport.expressCostMultiplier
+            end
+            
+            total = total + cost
+            payload[#payload + 1] = {
+                model = vehicle.model,
+                amount = amount,
+                price = stockData.currentPrice,
+                name = stockData.name or vehicle.name or vehicle.model
+            }
         end
 
-        local amount = tonumber(vehicle.amount)
-        if not amount or amount < 1 then
-            TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
-            return
+        if not database.tryAdjustShopFunds(shopId, -total) then
+            return false, 'insufficient_funds'
         end
 
-        amount = math.floor(amount)
+        for _, vehicle in ipairs(payload) do
+            local stockData = warehouseStock[vehicle.model]
+            if stockData then
+                stockData.stock = stockData.stock - vehicle.amount
+            end
+        end
+        GlobalState.WarehouseStock = warehouseStock
 
-        local stockData = warehouseStock[vehicle.model]
-        if not stockData or stockData.stock < amount then
-            TriggerClientEvent('vehicleshop:notify', source, 'insufficient_stock')
-            return
-        end
-        
-        local cost = stockData.currentPrice * amount
-        if isExpress then
-            cost = cost * Config.Transport.expressCostMultiplier
-        end
-        
-        totalCost = totalCost + cost
-        payloadVehicles[#payloadVehicles + 1] = {
-            model = vehicle.model,
-            amount = amount,
-            price = stockData.currentPrice,
-            name = stockData.name or vehicle.name or vehicle.model
-        }
-    end
-    
-    if shop.funds < totalCost then
-        TriggerClientEvent('vehicleshop:notify', source, 'insufficient_funds')
+        return true, payload, total
+    end)
+
+    if not success then
+        TriggerClientEvent('vehicleshop:notify', source, payloadVehicles or 'invalid_request')
         return
     end
 
@@ -194,17 +244,6 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     })
 
     if transportId then
-        database.updateShop(shopId, 'funds', shop.funds - totalCost)
-        shop.funds = (shop.funds or 0) - totalCost
-
-        for _, vehicle in ipairs(payloadVehicles) do
-            local stockData = warehouseStock[vehicle.model]
-            if stockData then
-                stockData.stock = stockData.stock - vehicle.amount
-            end
-        end
-        GlobalState.WarehouseStock = warehouseStock
-
         local storedVehicles = json.decode(json.encode(payloadVehicles))
 
         activeTransports[transportId] = {
@@ -215,6 +254,7 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
             totalCost = totalCost,
             transportType = transportType,
             status = transportType == 'delivery' and 'pending' or 'ready',
+            commissionPaid = false,
             createdAt = createdTimestamp,
             deliveryTime = deliveryAt,
             deliveryTimestamp = deliveryTimestamp
@@ -226,6 +266,15 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
 
         TriggerClientEvent('vehicleshop:notify', source, 'transport_created')
     else
+        database.tryAdjustShopFunds(shopId, totalCost)
+        local warehouseStock = GlobalState.WarehouseStock or {}
+        for _, vehicle in ipairs(payloadVehicles or {}) do
+            local stockData = warehouseStock[vehicle.model]
+            if stockData then
+                stockData.stock = stockData.stock + vehicle.amount
+            end
+        end
+        GlobalState.WarehouseStock = warehouseStock
         TriggerClientEvent('vehicleshop:notify', source, 'database_error')
     end
 end)
@@ -245,6 +294,9 @@ RegisterNetEvent('vehicleshop:unloadTrailer', function(transportId, shopId)
     
     local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
     if not isEmployee then return end
+    if not isNearShopLocation(source, GlobalState.VehicleShops[shopId], 'unload', Config.ShopTransport and Config.ShopTransport.unloadRadius or 5.0) then
+        return
+    end
     
     for _, vehicle in ipairs(transportData.vehicles or {}) do
         database.addStock(transportData.shopId, vehicle.model, vehicle.price, vehicle.amount)
@@ -277,8 +329,27 @@ lib.callback.register('vehicleshop:payTrailerCommission', function(source, trans
     
     local transportData = activeTransports[transportId]
     if not transportData then return false, 'transport_not_found' end
+
+    if transportData.transportType ~= 'trailer' or transportData.status ~= 'ready' then
+        return false, 'invalid_transport'
+    end
+
+    if transportData.commissionPaid then
+        return false, 'already_paid'
+    end
+
+    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, transportData.shopId)
+    if not isEmployee and transportData.playerId ~= source then
+        return false, 'no_permission'
+    end
     
-    totalCost = transportData.totalCost
+    local vehicleCount = 0
+    for _, vehicle in ipairs(transportData.vehicles or {}) do
+        vehicleCount = vehicleCount + (vehicle.amount or 0)
+    end
+
+    local commissionConfig = Config.Transport.trailerCommission
+    totalCost = commissionConfig.basePrice + (commissionConfig.perVehiclePrice * vehicleCount)
     local paymentMethod = Config.Transport.trailerCommission.paymentMethod
     
     if paymentMethod == 'cash' then
@@ -288,6 +359,9 @@ lib.callback.register('vehicleshop:payTrailerCommission', function(source, trans
         end
 
         Player.Functions.RemoveMoney('cash', totalCost, 'trailer-commission')
+
+        MySQL.update.await('UPDATE vehicleshop_transports SET commission_paid = 1 WHERE id = ?', {transportId})
+        transportData.commissionPaid = true
 
         lib.logger(source, 'payTrailerCommission', {
             transportId = transportId,
@@ -300,12 +374,13 @@ lib.callback.register('vehicleshop:payTrailerCommission', function(source, trans
         local shop = GlobalState.VehicleShops[transportData.shopId]
         if not shop then return false, 'shop_not_found' end
 
-        if shop.funds < totalCost then
+        local fundsOk = database.tryAdjustShopFunds(transportData.shopId, -totalCost)
+        if not fundsOk then
             return false, 'insufficient_shop_funds'
         end
 
-        database.updateShop(transportData.shopId, 'funds', shop.funds - totalCost)
-        shop.funds = shop.funds - totalCost
+        MySQL.update.await('UPDATE vehicleshop_transports SET commission_paid = 1 WHERE id = ?', {transportId})
+        transportData.commissionPaid = true
 
         lib.logger(source, 'payTrailerCommission', {
             transportId = transportId,

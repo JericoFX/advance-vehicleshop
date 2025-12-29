@@ -105,6 +105,13 @@ lib.callback.register('vehicleshop:getTransactions', function(source, shopId, li
         return false
     end
     
+    limit = tonumber(limit) or 50
+    if limit < 1 then
+        limit = 1
+    elseif limit > 100 then
+        limit = 100
+    end
+
     return funds.getTransactionHistory(shopId, limit)
 end)
 
