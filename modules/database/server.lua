@@ -140,6 +140,7 @@ function database.init()
             `total_cost` DECIMAL(10, 2) NOT NULL,
             `transport_type` ENUM('delivery', 'trailer') NOT NULL,
             `status` ENUM('pending', 'ready', 'in_transit', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
+            `commission_paid` TINYINT(1) NOT NULL DEFAULT 0,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `delivery_time` TIMESTAMP NULL DEFAULT NULL,
             `completed_at` TIMESTAMP NULL DEFAULT NULL,
@@ -150,6 +151,10 @@ function database.init()
             FOREIGN KEY (`shop_id`) REFERENCES `vehicleshops`(`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
+
+    pcall(function()
+        MySQL.query([[ALTER TABLE `vehicleshop_transports` ADD COLUMN `commission_paid` TINYINT(1) NOT NULL DEFAULT 0]])
+    end)
 
     database.loadShops()
 end
@@ -233,6 +238,29 @@ function database.updateShop(shopId, field, value)
     end
 end
 
+function database.tryAdjustShopFunds(shopId, amount)
+    if amount == 0 then
+        return true
+    end
+
+    local rows = MySQL.update.await([[
+        UPDATE vehicleshops
+        SET funds = funds + ?
+        WHERE id = ? AND funds + ? >= 0
+    ]], {amount, shopId, amount})
+
+    if rows and rows > 0 then
+        local shops = GlobalState.VehicleShops
+        if shops[shopId] then
+            shops[shopId].funds = (shops[shopId].funds or 0) + amount
+            GlobalState.VehicleShops = shops
+        end
+        return true
+    end
+
+    return false
+end
+
 function database.addEmployee(shopId, citizenid, rank)
     MySQL.insert.await([[
         INSERT INTO vehicleshop_employees (shop_id, citizenid, rank)
@@ -285,6 +313,16 @@ function database.removeStock(shopId, model, amount)
     ]], {amount, shopId, model})
 end
 
+function database.tryRemoveStock(shopId, model, amount)
+    local rows = MySQL.update.await([[
+        UPDATE vehicleshop_stock
+        SET amount = amount - ?
+        WHERE shop_id = ? AND model = ? AND amount >= ?
+    ]], {amount, shopId, model, amount})
+
+    return rows and rows > 0
+end
+
 function database.getStock(shopId)
     return MySQL.query.await('SELECT * FROM vehicleshop_stock WHERE shop_id = ?', {shopId})
 end
@@ -311,6 +349,11 @@ function database.getDisplayVehicles(shopId)
     end
     
     return vehicles
+end
+
+function database.getDisplayVehicleById(displayId)
+    local result = MySQL.query.await('SELECT * FROM vehicleshop_display WHERE id = ?', {displayId})
+    return result and result[1] or nil
 end
 
 function database.recordSale(data)

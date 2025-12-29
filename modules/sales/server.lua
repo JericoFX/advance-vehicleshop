@@ -1,6 +1,27 @@
 local sales = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local MAX_REPORT_RANGE_DAYS = 90
+
+local function parseDate(value)
+    if type(value) ~= 'string' then
+        return nil
+    end
+
+    local year, month, day = value:match('^(%d%d%d%d)%-(%d%d)%-(%d%d)$')
+    if not year then
+        return nil
+    end
+
+    return os.time({
+        year = tonumber(year),
+        month = tonumber(month),
+        day = tonumber(day),
+        hour = 0,
+        min = 0,
+        sec = 0
+    })
+end
 
 lib.callback.register('vehicleshop:getSalesHistory', function(source, shopId, period)
     local Player = QBCore.Functions.GetPlayer(source)
@@ -146,6 +167,21 @@ lib.callback.register('vehicleshop:generateSalesReport', function(source, shopId
         end
     end
     
+    local startTimestamp = parseDate(startDate)
+    local endTimestamp = parseDate(endDate)
+    if not startTimestamp or not endTimestamp then
+        return false, 'invalid_date'
+    end
+
+    if startTimestamp > endTimestamp then
+        return false, 'invalid_date'
+    end
+
+    local rangeDays = math.floor((endTimestamp - startTimestamp) / 86400)
+    if rangeDays > MAX_REPORT_RANGE_DAYS then
+        return false, 'date_range_too_large'
+    end
+
     local query = [[
         SELECT 
             DATE(sold_at) as sale_date,

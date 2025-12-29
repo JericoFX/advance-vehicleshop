@@ -4,6 +4,34 @@ local database = lib.require('modules.database.server')
 
 local vehicleData = nil
 local refreshTimer = nil
+local stockLock = false
+local purchaseCooldowns = {}
+local PURCHASE_COOLDOWN_SECONDS = 2
+
+local function isOnCooldown(cooldownTable, source, duration)
+    local now = os.time()
+    local last = cooldownTable[source] or 0
+    if now - last < duration then
+        return true
+    end
+    cooldownTable[source] = now
+    return false
+end
+
+local function isNearShopManagement(source, shop)
+    if not shop or not shop.management then
+        return false
+    end
+
+    local ped = GetPlayerPed(source)
+    if not ped then return false end
+
+    local coords = GetEntityCoords(ped)
+    local target = shop.management
+    local dist = #(coords - vector3(target.x, target.y, target.z))
+
+    return dist <= (Config.ShopTransport and Config.ShopTransport.garageRadius or 3.0)
+end
 
 function warehouse.init()
     warehouse.loadVehicleData()
@@ -88,6 +116,33 @@ function warehouse.startRefreshTimer()
     end)
 end
 
+function warehouse.acquireStockLock()
+    if stockLock then
+        return false
+    end
+    stockLock = true
+    return true
+end
+
+function warehouse.releaseStockLock()
+    stockLock = false
+end
+
+function warehouse.withStockLock(callback)
+    if not warehouse.acquireStockLock() then
+        return false, 'busy'
+    end
+
+    local ok, result1, result2, result3 = pcall(callback)
+    warehouse.releaseStockLock()
+
+    if not ok then
+        return false, 'error'
+    end
+
+    return result1, result2, result3
+end
+
 lib.callback.register('vehicleshop:getWarehouseStock', function(source, category)
     local stock = GlobalState.WarehouseStock or {}
     
@@ -104,9 +159,47 @@ lib.callback.register('vehicleshop:getWarehouseStock', function(source, category
     return stock
 end)
 
+lib.callback.register('vehicleshop:getAvailableVehiclesForTransport', function(source)
+    local Player = QBCore.Functions.GetPlayer(source)
+    if not Player then return {} end
+
+    local citizenid = Player.PlayerData.citizenid
+    local shops = GlobalState.VehicleShops or {}
+    local isEmployee = false
+
+    for _, shop in pairs(shops) do
+        if shop.employees and shop.employees[citizenid] then
+            isEmployee = true
+            break
+        end
+    end
+
+    if not isEmployee then
+        return {}
+    end
+
+    local stock = GlobalState.WarehouseStock or {}
+    local available = {}
+
+    for _, data in pairs(stock) do
+        if data.stock and data.stock > 0 then
+            available[#available + 1] = {
+                model = data.model,
+                name = data.name or data.model
+            }
+        end
+    end
+
+    return available
+end)
+
 lib.callback.register('vehicleshop:purchaseFromWarehouse', function(source, shopId, model, amount)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
+
+    if isOnCooldown(purchaseCooldowns, source, PURCHASE_COOLDOWN_SECONDS) then
+        return false, 'cooldown'
+    end
 
     amount = tonumber(amount)
     if not amount or amount < 1 then
@@ -118,26 +211,34 @@ lib.callback.register('vehicleshop:purchaseFromWarehouse', function(source, shop
 
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return false end
-    
-    local stock = GlobalState.WarehouseStock or {}
-    local vehicle = stock[model]
-    
-    if not vehicle or vehicle.stock < amount then
-        return false, 'no_stock'
-    end
-    
-    local totalCost = vehicle.currentPrice * amount
-    
-    if shop.funds < totalCost then
-        return false, 'insufficient_funds'
-    end
+    if not isNearShopManagement(source, shop) then return false, 'too_far' end
 
-    database.updateShop(shopId, 'funds', shop.funds - totalCost)
-    database.addStock(shopId, model, vehicle.currentPrice, amount)
+    local success, reason = warehouse.withStockLock(function()
+        local stock = GlobalState.WarehouseStock or {}
+        local vehicle = stock[model]
 
-    stock[model].stock = stock[model].stock - amount
-    stock[model].lastUpdate = os.time()
-    GlobalState.WarehouseStock = stock
+        if not vehicle or vehicle.stock < amount then
+            return false, 'no_stock'
+        end
+
+        local totalCost = vehicle.currentPrice * amount
+        local fundsOk = database.tryAdjustShopFunds(shopId, -totalCost)
+        if not fundsOk then
+            return false, 'insufficient_funds'
+        end
+
+        database.addStock(shopId, model, vehicle.currentPrice, amount)
+
+        stock[model].stock = stock[model].stock - amount
+        stock[model].lastUpdate = os.time()
+        GlobalState.WarehouseStock = stock
+
+        return true
+    end)
+
+    if not success then
+        return false, reason
+    end
 
     return true
 end)
