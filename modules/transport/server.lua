@@ -2,6 +2,7 @@ local transport = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
 local warehouse = lib.require('modules.warehouse.server')
+local business = lib.require('modules.business.server')
 
 local activeTransports = {}
 local trailerProtections = {}
@@ -137,8 +138,9 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
         return
     end
     
-    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
-    if not isEmployee then return end
+    local citizenid = Player.PlayerData.citizenid
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+    if employeeRank < 1 then return end
     
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return end
@@ -169,6 +171,8 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
                 return false, 'invalid_request'
             end
 
+            local model = vehicle.model:lower()
+
             local amount = tonumber(vehicle.amount)
             if not amount or amount < 1 then
                 return false, 'invalid_request'
@@ -176,7 +180,7 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
 
             amount = math.floor(amount)
 
-            local stockData = warehouseStock[vehicle.model]
+            local stockData = warehouseStock[model]
             if not stockData or stockData.stock < amount then
                 return false, 'insufficient_stock'
             end
@@ -188,10 +192,10 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
             
             total = total + cost
             payload[#payload + 1] = {
-                model = vehicle.model,
+                model = model,
                 amount = amount,
                 price = stockData.currentPrice,
-                name = stockData.name or vehicle.name or vehicle.model
+                name = stockData.name or vehicle.name or model
             }
         end
 
@@ -291,9 +295,11 @@ RegisterNetEvent('vehicleshop:unloadTrailer', function(transportId, shopId)
     if transportData.shopId ~= shopId then return end
     if transportData.transportType ~= 'trailer' then return end
     if transportData.status ~= 'ready' then return end
-    
-    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
-    if not isEmployee then return end
+    if not transportData.commissionPaid then return end
+
+    local citizenid = Player.PlayerData.citizenid
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+    if employeeRank < 1 then return end
     if not isNearShopLocation(source, GlobalState.VehicleShops[shopId], 'unload', Config.ShopTransport and Config.ShopTransport.unloadRadius or 5.0) then
         return
     end
@@ -338,8 +344,9 @@ lib.callback.register('vehicleshop:payTrailerCommission', function(source, trans
         return false, 'already_paid'
     end
 
-    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, transportData.shopId)
-    if not isEmployee and transportData.playerId ~= source then
+    local citizenid = Player.PlayerData.citizenid
+    local employeeRank = business.getEmployeeRank(citizenid, transportData.shopId)
+    if employeeRank < 1 and transportData.playerId ~= source then
         return false, 'no_permission'
     end
     

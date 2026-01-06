@@ -33,6 +33,8 @@ function sales.setupEventHandlers()
 end
 
 function sales.openCatalog(shopId)
+    local shops = lib.require('modules.shops.client')
+    shops.setCurrentShop(shopId)
     local stock = lib.callback.await('vehicleshop:getShopVehicles', false, shopId)
     local categories = {}
     local vehiclesByCategory = {}

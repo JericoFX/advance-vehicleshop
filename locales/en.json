@@ -30,6 +30,9 @@
         "no_shop_selected": "You must be near a shop to purchase vehicles",
         "purchased": "Purchased %d %s",
         "purchase_failed": "Purchase failed",
+        "cooldown": "Please wait before purchasing again",
+        "too_far": "You are too far from the shop",
+        "invalid_vehicle": "Invalid vehicle",
         "invalid_amount": "Invalid amount",
         "insufficient_funds": "The shop does not have enough funds",
         "stock_refreshed": "Warehouse stock has been refreshed",
@@ -161,6 +164,11 @@
         "brand": "Brand",
         "category": "Category",
         "price": "Price",
+        "price_history": "Price History",
+        "price_history_desc": "View recent price changes",
+        "update_price": "Update Price",
+        "update_price_desc": "Change the sale price for this model",
+        "new_price": "New Price",
         "add_display_desc": "Place a new vehicle on display",
         "remove_display_desc": "Remove this vehicle from display",
         "select_vehicle": "Select Vehicle",
@@ -170,7 +178,13 @@
         "remove_confirm": "Are you sure you want to remove this display vehicle?",
         "display_options": "Display Options",
         "all_on_display": "All available units are already on display",
-        "no_stock": "No stock available for this vehicle"
+        "no_stock": "No stock available for this vehicle",
+        "price_updated": "Price updated for %s: $%s",
+        "no_price_history": "No price history available",
+        "invalid_price": "Invalid price",
+        "invalid_vehicle": "Vehicle not found",
+        "no_permission": "You don't have permission to do this",
+        "update_failed": "Failed to update price"
     },
     "funds": {
         "title": "Fund Management",
@@ -205,6 +219,11 @@
         "confirm_finance_purchase": "Are you sure you want to finance this vehicle with %d%% down payment?",
         "vehicle_delivered": "Your vehicle has been delivered",
         "purchase_failed": "Purchase failed",
+        "cooldown": "Please wait before purchasing again",
+        "too_far": "You are too far from the shop",
+        "invalid_finance": "Invalid finance option",
+        "invalid_vehicle": "Invalid vehicle",
+        "no_money": "You don't have enough money",
         "no_stock": "This vehicle is out of stock",
         "count": "Sales",
         "total": "Total",
@@ -218,7 +237,14 @@
         "top_sellers_desc": "View best performing employees",
         "top_models_desc": "View best selling vehicles",
         "generate_report": "Generate Report",
-        "generate_report_desc": "Create detailed sales report"
+        "generate_report_desc": "Create detailed sales report",
+        "report_start": "Start Date (YYYY-MM-DD)",
+        "report_end": "End Date (YYYY-MM-DD)",
+        "report_date_desc": "Use format YYYY-MM-DD",
+        "report_invalid_date": "Invalid date range",
+        "report_range_too_large": "Date range too large",
+        "report_failed": "Failed to generate report",
+        "report_empty": "No sales in this period"
     },
     "testdrive": {
         "no_shop": "You must be at a vehicle shop",
@@ -231,9 +257,19 @@
         "end_confirm": "Are you sure you want to end the test drive?",
         "time_expired": "Test drive time expired"
     },
+    "finance": {
+        "payment_success": "Payment processed: $%s, remaining months: %d",
+        "payment_failed": "Payment failed: $%s",
+        "vehicle_repossessed": "Your financed vehicle has been repossessed"
+    },
     "settings": {
         "transfer_ownership": "Transfer Ownership",
-        "transfer_ownership_desc": "Transfer shop ownership to another player"
+        "transfer_ownership_desc": "Transfer shop ownership to another player",
+        "new_owner": "New Owner Citizen ID",
+        "new_owner_desc": "Enter the citizen id for the new owner",
+        "transfer_success": "Ownership transferred",
+        "transfer_failed": "Failed to transfer ownership",
+        "not_owner": "You are not the owner of this shop"
     },
     "ui": {
         "confirm": "Confirm",

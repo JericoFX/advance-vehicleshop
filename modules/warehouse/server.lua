@@ -1,6 +1,7 @@
 local warehouse = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
 
 local vehicleData = nil
 local refreshTimer = nil
@@ -167,8 +168,8 @@ lib.callback.register('vehicleshop:getAvailableVehiclesForTransport', function(s
     local shops = GlobalState.VehicleShops or {}
     local isEmployee = false
 
-    for _, shop in pairs(shops) do
-        if shop.employees and shop.employees[citizenid] then
+    for shopId, _ in pairs(shops) do
+        if business.getEmployeeRank(citizenid, shopId) > 0 then
             isEmployee = true
             break
         end
@@ -201,13 +202,20 @@ lib.callback.register('vehicleshop:purchaseFromWarehouse', function(source, shop
         return false, 'cooldown'
     end
 
+    if type(model) ~= 'string' or model == '' then
+        return false, 'invalid_vehicle'
+    end
+    model = model:lower()
+
     amount = tonumber(amount)
     if not amount or amount < 1 then
         return false, 'invalid_amount'
     end
+    amount = math.floor(amount)
 
-    local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', source, shopId)
-    if not isEmployee then return false end
+    local citizenid = Player.PlayerData.citizenid
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+    if employeeRank < 1 then return false end
 
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return false end

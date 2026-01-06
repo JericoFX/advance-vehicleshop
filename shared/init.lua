@@ -15,6 +15,7 @@ Config.Transport = {
     trailerModel = "tr4", -- Car trailer model
     truckModel = "phantom", -- Truck model
     flatbedModel = "flatbed", -- Flatbed model for individual transport
+    trailerSpawn = vec4(1210.0, -3250.0, 6.0, 90.0), -- Trailer spawn location
     maxVehiclesPerTrailer = 4, -- Maximum vehicles per trailer load
     minVehiclesForTrailer = 4, -- Minimum vehicles to require trailer transport
     freezeVehicles = true, -- Freeze vehicles when loaded on trailer

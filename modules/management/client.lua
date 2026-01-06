@@ -32,6 +32,17 @@ function management.setupEventHandlers()
             })
         end
     end)
+
+    RegisterNetEvent('vehicleshop:priceUpdated', function(shopId, model, newPrice)
+        local shops = lib.require('modules.shops.client')
+        if shops.getCurrentShop() ~= shopId then return end
+
+        lib.notify({
+            title = locale('ui.success'),
+            description = locale('vehicles.price_updated', model, newPrice),
+            type = 'success'
+        })
+    end)
 end
 
 function management.openMainMenu(shopId)
@@ -733,6 +744,223 @@ function management.openSettingsMenu(shopId)
         title = locale('management.settings'),
         options = options
     })
+end
+
+function management.showPriceHistory(shopId, vehicle)
+    local history = lib.callback.await('vehicleshop:getPriceHistory', false, shopId, vehicle.model)
+    local options = {}
+
+    for _, record in ipairs(history or {}) do
+        local title = string.format('$%s -> $%s', record.old_price or 0, record.new_price or 0)
+        local changedBy = record.changed_by_name or record.changed_by or 'Unknown'
+        local changedAt = record.changed_at or ''
+        table.insert(options, {
+            title = title,
+            description = string.format('%s %s', changedBy, changedAt),
+            icon = 'history',
+            readOnly = true
+        })
+    end
+
+    if #options == 0 then
+        table.insert(options, {
+            title = locale('ui.error'),
+            description = locale('vehicles.no_price_history'),
+            icon = 'info-circle',
+            readOnly = true
+        })
+    end
+
+    table.insert(options, {
+        title = locale('ui.back'),
+        icon = 'arrow-left',
+        onSelect = function()
+            management.vehicleStockOptions(shopId, vehicle, 3)
+        end
+    })
+
+    ui.showMenu({
+        id = 'price_history',
+        title = locale('vehicles.price_history'),
+        options = options
+    })
+end
+
+function management.vehicleStockOptions(shopId, vehicle, rank)
+    local options = {
+        {
+            title = locale('vehicles.price'),
+            description = '$' .. vehicle.price,
+            icon = 'tag',
+            readOnly = true
+        }
+    }
+
+    if rank >= 3 then
+        table.insert(options, {
+            title = locale('vehicles.update_price'),
+            description = locale('vehicles.update_price_desc'),
+            icon = 'dollar-sign',
+            onSelect = function()
+                local input = ui.showInput(locale('vehicles.update_price'), {
+                    {
+                        type = 'number',
+                        label = locale('vehicles.new_price'),
+                        required = true,
+                        min = 0
+                    }
+                })
+
+                if input then
+                    local newPrice = input[1]
+                    local success, reason = lib.callback.await('vehicleshop:updateVehiclePrice', false, shopId, vehicle.model, newPrice)
+                    if success then
+                        lib.notify({
+                            title = locale('ui.success'),
+                            description = locale('vehicles.price_updated', vehicle.model, newPrice),
+                            type = 'success'
+                        })
+                        management.openStockMenu(shopId)
+                    else
+                        lib.notify({
+                            title = locale('ui.error'),
+                            description = locale('vehicles.' .. (reason or 'update_failed')),
+                            type = 'error'
+                        })
+                    end
+                end
+            end
+        })
+    end
+
+    table.insert(options, {
+        title = locale('vehicles.price_history'),
+        description = locale('vehicles.price_history_desc'),
+        icon = 'history',
+        onSelect = function()
+            management.showPriceHistory(shopId, vehicle)
+        end
+    })
+
+    table.insert(options, {
+        title = locale('ui.back'),
+        icon = 'arrow-left',
+        onSelect = function()
+            management.openStockMenu(shopId)
+        end
+    })
+
+    ui.showMenu({
+        id = 'stock_options',
+        title = vehicle.name or vehicle.model,
+        options = options
+    })
+end
+
+function management.showSalesReport(shopId, report)
+    local options = {}
+
+    for _, day in ipairs(report.daily or {}) do
+        table.insert(options, {
+            title = tostring(day.sale_date),
+            description = string.format('%s: %d | %s: $%s',
+                locale('sales.count'), day.sales_count or 0,
+                locale('sales.total'), day.total_revenue or 0
+            ),
+            icon = 'calendar',
+            readOnly = true
+        })
+    end
+
+    if #options == 0 then
+        table.insert(options, {
+            title = locale('ui.error'),
+            description = locale('sales.report_empty'),
+            icon = 'info-circle',
+            readOnly = true
+        })
+    end
+
+    table.insert(options, {
+        title = locale('ui.back'),
+        icon = 'arrow-left',
+        onSelect = function()
+            management.openSalesMenu(shopId, 3)
+        end
+    })
+
+    ui.showMenu({
+        id = 'sales_report',
+        title = locale('sales.generate_report'),
+        options = options
+    })
+end
+
+function management.generateSalesReport(shopId)
+    local input = ui.showInput(locale('sales.generate_report'), {
+        {
+            type = 'input',
+            label = locale('sales.report_start'),
+            description = locale('sales.report_date_desc'),
+            required = true
+        },
+        {
+            type = 'input',
+            label = locale('sales.report_end'),
+            description = locale('sales.report_date_desc'),
+            required = true
+        }
+    })
+
+    if input then
+        local startDate = input[1]
+        local endDate = input[2]
+        local report, reason = lib.callback.await('vehicleshop:generateSalesReport', false, shopId, startDate, endDate)
+        if not report then
+            local reasonMap = {
+                invalid_date = locale('sales.report_invalid_date'),
+                date_range_too_large = locale('sales.report_range_too_large')
+            }
+            lib.notify({
+                title = locale('ui.error'),
+                description = reasonMap[reason] or locale('sales.report_failed'),
+                type = 'error'
+            })
+            return
+        end
+
+        management.showSalesReport(shopId, report)
+    end
+end
+
+function management.transferOwnership(shopId)
+    local input = ui.showInput(locale('settings.transfer_ownership'), {
+        {
+            type = 'input',
+            label = locale('settings.new_owner'),
+            description = locale('settings.new_owner_desc'),
+            required = true
+        }
+    })
+
+    if input then
+        local citizenid = input[1]
+        local success, reason = lib.callback.await('vehicleshop:transferOwnership', false, shopId, citizenid)
+        if success then
+            lib.notify({
+                title = locale('ui.success'),
+                description = locale('settings.transfer_success'),
+                type = 'success'
+            })
+            management.openSettingsMenu(shopId)
+        else
+            lib.notify({
+                title = locale('ui.error'),
+                description = locale('settings.' .. (reason or 'transfer_failed')),
+                type = 'error'
+            })
+        end
+    end
 end
 
 return management

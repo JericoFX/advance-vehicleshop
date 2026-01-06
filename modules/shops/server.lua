@@ -71,19 +71,34 @@ lib.callback.register('vehicleshop:purchaseShop', function(source, shopId)
     if shop.owner then return false end
     
     local money = Player.Functions.GetMoney('bank')
+    local paidFrom = 'bank'
     if money < shop.price then
         money = Player.Functions.GetMoney('cash')
         if money < shop.price then
             return false
         end
         Player.Functions.RemoveMoney('cash', shop.price)
+        paidFrom = 'cash'
     else
         Player.Functions.RemoveMoney('bank', shop.price)
     end
     
     local citizenid = Player.PlayerData.citizenid
-    
-    database.updateShop(shopId, 'owner', citizenid)
+
+    local updated = MySQL.update.await(
+        'UPDATE vehicleshops SET owner = ? WHERE id = ? AND owner IS NULL',
+        {citizenid, shopId}
+    )
+    if not updated or updated == 0 then
+        Player.Functions.AddMoney(paidFrom, shop.price)
+        return false
+    end
+
+    if shops[shopId] then
+        shops[shopId].owner = citizenid
+        GlobalState.VehicleShops = shops
+    end
+
     database.addEmployee(shopId, citizenid, 4)
 
     local existingBusiness = business.getBusinessByShop(shopId)

@@ -1,18 +1,23 @@
 local prices = {}
 local QBCore = exports['qb-core']:GetCoreObject()
-local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
 
 lib.callback.register('vehicleshop:updateVehiclePrice', function(source, shopId, model, newPrice)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
-    
+
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return false end
-    
+
+    if type(model) ~= 'string' or model == '' then
+        return false, 'invalid_vehicle'
+    end
+    model = model:lower()
+
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
-    
-    if not employee or employee.rank < 3 then
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+
+    if employeeRank < 3 then
         return false, 'no_permission'
     end
     
@@ -21,12 +26,26 @@ lib.callback.register('vehicleshop:updateVehiclePrice', function(source, shopId,
         return false, 'invalid_price'
     end
     
+    local result = MySQL.query.await([[
+        SELECT price FROM vehicleshop_stock
+        WHERE shop_id = ? AND model = ?
+        LIMIT 1
+    ]], {shopId, model})
+
+    if not result or not result[1] then
+        return false, 'invalid_vehicle'
+    end
+
+    local oldPrice = result[1].price
+
     MySQL.update.await([[
-        UPDATE vehicleshop_stock 
-        SET price = ? 
+        UPDATE vehicleshop_stock
+        SET price = ?
         WHERE shop_id = ? AND model = ?
     ]], {newPrice, shopId, model})
-    
+
+    prices.logPriceChange(shopId, model, oldPrice, newPrice, citizenid)
+
     TriggerClientEvent('vehicleshop:priceUpdated', -1, shopId, model, newPrice)
     
     return true
@@ -35,12 +54,18 @@ end)
 lib.callback.register('vehicleshop:getPriceHistory', function(source, shopId, model)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
-    
+
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return false end
-    
-    local employee = shop.employees[Player.PlayerData.citizenid]
-    if not employee then return false end
+
+    if type(model) ~= 'string' or model == '' then
+        return false
+    end
+    model = model:lower()
+
+    local citizenid = Player.PlayerData.citizenid
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+    if employeeRank < 1 then return false end
     
     local history = MySQL.query.await([[
         SELECT ph.*, p.charinfo

@@ -9,6 +9,8 @@ local loadedVehicles = {}
 local isTrailerLowered = false
 local currentTransportId = nil
 local temporaryKeys = {}
+local temporaryKeysById = {}
+local sharedKeysByModel = {}
 
 function garage.init()
     garage.loadShopZones()
@@ -18,6 +20,9 @@ end
 function garage.cleanup()
     garage.clearZones()
     garage.clearTransportVehicles()
+    temporaryKeys = {}
+    temporaryKeysById = {}
+    sharedKeysByModel = {}
 end
 
 function garage.loadShopZones()
@@ -131,6 +136,45 @@ function garage.registerEvents()
             type = 'success'
         })
     end)
+
+    RegisterNetEvent('vehicleshop:receiveTemporaryKey', function(keyId, vehicleModel, duration)
+        if not keyId or not vehicleModel then return end
+        local model = vehicleModel:lower()
+        sharedKeysByModel[model] = sharedKeysByModel[model] or {}
+        sharedKeysByModel[model][keyId] = true
+    end)
+
+    RegisterNetEvent('vehicleshop:removeTemporaryKey', function(keyId, vehicleModel)
+        local netId = temporaryKeysById[keyId]
+        if netId then
+            temporaryKeys[netId] = nil
+            temporaryKeysById[keyId] = nil
+        end
+
+        if vehicleModel then
+            local model = vehicleModel:lower()
+            if sharedKeysByModel[model] then
+                sharedKeysByModel[model][keyId] = nil
+                if next(sharedKeysByModel[model]) == nil then
+                    sharedKeysByModel[model] = nil
+                end
+            end
+        end
+    end)
+
+    RegisterNetEvent('vehicleshop:restoreTransport', function(transportId, transport)
+        currentTransportId = transportId
+        currentShopId = transport and transport.shopId or currentShopId
+    end)
+end
+
+local function getSharedKeyForModel(model)
+    local keys = sharedKeysByModel[model]
+    if not keys then return nil end
+    for keyId, _ in pairs(keys) do
+        return keyId
+    end
+    return nil
 end
 
 function garage.openGarageMenu(shopId)
@@ -581,6 +625,7 @@ function garage.unloadSpecificVehicle(index)
     end
     
     temporaryKeys[vehicleData.netId] = keyId
+    temporaryKeysById[keyId] = vehicleData.netId
     
     if DoesEntityExist(vehicleData.entity) then
         local coords = shop.unload
@@ -621,6 +666,9 @@ function garage.sendVehicleToStock(index, vehicleName)
     if success and DoesEntityExist(vehicleData.entity) then
         DeleteEntity(vehicleData.entity)
         temporaryKeys[vehicleData.netId] = nil
+        if keyId then
+            temporaryKeysById[keyId] = nil
+        end
         lib.notify({
             title = locale('garage.vehicle_stored_stock'),
             description = locale('garage.vehicle_stored_stock_desc', vehicleName),
@@ -660,8 +708,11 @@ function garage.storeVehicleInStock(shopId)
     local model = GetEntityModel(vehicle)
     local modelName = GetDisplayNameFromVehicleModel(model)
     local props = lib.getVehicleProperties(vehicle)
-    
-    local success = lib.callback.await('vehicleshop:storeVehicleInStock', false, shopId, modelName:lower(), props, nil, nil, nil)
+    local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    local modelLower = modelName:lower()
+    local keyId = temporaryKeys[netId] or getSharedKeyForModel(modelLower)
+
+    local success = lib.callback.await('vehicleshop:storeVehicleInStock', false, shopId, modelLower, props, keyId, netId, nil)
     
     if success then
         DeleteEntity(vehicle)

@@ -1,4 +1,5 @@
 local database = {}
+local business = lib.require('modules.business.server')
 
 function database.init()
     MySQL.query([[
@@ -241,6 +242,19 @@ end
 function database.tryAdjustShopFunds(shopId, amount)
     if amount == 0 then
         return true
+    end
+
+    if business and business.getBusinessByShop and business.getBusinessByShop(shopId) then
+        local absAmount = math.abs(amount)
+        if amount < 0 then
+            local currentFunds = business.getBusinessFunds(shopId)
+            if currentFunds < absAmount then
+                return false
+            end
+            return business.updateBusinessFunds(shopId, absAmount, true) == true
+        end
+
+        return business.updateBusinessFunds(shopId, absAmount, false) == true
     end
 
     local rows = MySQL.update.await([[

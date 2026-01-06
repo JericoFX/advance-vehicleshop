@@ -79,6 +79,17 @@ local function matchFinanceOption(financeData)
     return nil
 end
 
+local function getCommissionRateForRank(rank)
+    local commissionRates = {
+        [1] = 0.05,
+        [2] = 0.07,
+        [3] = 0.10,
+        [4] = 0.15
+    }
+
+    return commissionRates[rank] or 0
+end
+
 lib.callback.register('vehicleshop:getShopVehicles', function(source, shopId)
     return database.getStock(shopId)
 end)
@@ -90,9 +101,14 @@ end)
 lib.callback.register('vehicleshop:addDisplayVehicle', function(source, shopId, model, position)
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
-    
+
     local shop = GlobalState.VehicleShops[shopId]
     if not shop then return false end
+
+    if type(model) ~= 'string' or model == '' then
+        return false, 'invalid_vehicle'
+    end
+    model = model:lower()
     
     local citizenid = Player.PlayerData.citizenid
     local employeeRank = business.getEmployeeRank(citizenid, shopId)
@@ -130,6 +146,20 @@ lib.callback.register('vehicleshop:addDisplayVehicle', function(source, shopId, 
         return false, 'all_on_display'
     end
     
+    if type(position) ~= 'table' then
+        return false, 'invalid_position'
+    end
+
+    if type(position.x) ~= 'number' or type(position.y) ~= 'number' or type(position.z) ~= 'number' then
+        return false, 'invalid_position'
+    end
+
+    local maxDistance = Config.ShopTransport and Config.ShopTransport.maxDisplayDistance or 100.0
+    local dist = #(vector3(position.x, position.y, position.z) - vector3(shop.entry.x, shop.entry.y, shop.entry.z))
+    if dist > maxDistance then
+        return false, 'invalid_position'
+    end
+
     local id = database.addDisplayVehicle(shopId, model, position)
     
     if id then
@@ -212,6 +242,11 @@ lib.callback.register('vehicleshop:purchaseVehicle', function(source, shopId, mo
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return false end
 
+    if type(model) ~= 'string' or model == '' then
+        return false, 'invalid_vehicle'
+    end
+    model = model:lower()
+
     if isOnCooldown(purchaseCooldowns, source, PURCHASE_COOLDOWN_SECONDS) then
         return false, 'cooldown'
     end
@@ -236,17 +271,38 @@ lib.callback.register('vehicleshop:purchaseVehicle', function(source, shopId, mo
     
     local totalPrice = vehicleStock.price
     local downPayment = totalPrice
-    
+    local financePayload = nil
+
     if paymentMethod == 'finance' then
         local option = matchFinanceOption(financeData)
         if not option then
             return false, 'invalid_finance'
         end
-        financeData = option
-        downPayment = math.floor(totalPrice * financeData.downPayment)
-        if downPayment < 1 then
+
+        local downPaymentAmount = math.floor(totalPrice * option.downPayment)
+        if downPaymentAmount < 1 then
             return false, 'invalid_finance'
         end
+
+        local financed = totalPrice - downPaymentAmount
+        local interest = math.floor(financed * option.interest)
+        local totalFinance = financed + interest
+        local monthlyPayment = math.floor(totalFinance / option.months)
+        if monthlyPayment < 1 then
+            return false, 'invalid_finance'
+        end
+
+        financePayload = {
+            label = option.label,
+            downPayment = option.downPayment,
+            interest = option.interest,
+            months = option.months,
+            totalAmount = totalFinance,
+            remainingAmount = totalFinance,
+            monthlyPayment = monthlyPayment,
+            downPaymentAmount = downPaymentAmount
+        }
+        downPayment = downPaymentAmount
     end
     
     local hasBank = Player.Functions.GetMoney('bank') >= downPayment
@@ -272,16 +328,11 @@ lib.callback.register('vehicleshop:purchaseVehicle', function(source, shopId, mo
         return false, 'no_stock'
     end
     
-    local seller = nil
-    for cid, _ in pairs(shop.employees) do
-        local emp = QBCore.Functions.GetPlayerByCitizenId(cid)
-        if emp and emp.PlayerData.source == source then
-            seller = cid
-            break
-        end
-    end
-    
-    local commissionRate = lib.callback.await('vehicleshop:getCommissionRate', source, shopId)
+    local citizenid = Player.PlayerData.citizenid
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+    local seller = employeeRank > 0 and citizenid or nil
+
+    local commissionRate = getCommissionRateForRank(employeeRank)
     local commission = math.floor(totalPrice * commissionRate)
     
     database.tryAdjustShopFunds(shopId, totalPrice - commission)
@@ -300,7 +351,7 @@ lib.callback.register('vehicleshop:purchaseVehicle', function(source, shopId, mo
         model = model,
         price = totalPrice,
         commission = commission,
-        financeData = financeData
+        financeData = financePayload
     })
     
     local plate = vehicles.generatePlate()
@@ -317,8 +368,8 @@ lib.callback.register('vehicleshop:purchaseVehicle', function(source, shopId, mo
         1
     })
     
-    if paymentMethod == 'finance' and financeData then
-        vehicles.createFinanceContract(Player.PlayerData.citizenid, model, plate, financeData)
+    if paymentMethod == 'finance' and financePayload then
+        vehicles.createFinanceContract(Player.PlayerData.citizenid, model, plate, financePayload)
     end
     
     return true, plate
@@ -389,9 +440,12 @@ function vehicles.generatePlate()
 end
 
 function vehicles.createFinanceContract(citizenid, model, plate, financeData)
-    local downPayment = math.floor(financeData.totalAmount * financeData.downPayment)
+    local downPayment = financeData.downPaymentAmount or math.floor(financeData.totalAmount * financeData.downPayment)
+    local totalAmount = financeData.totalAmount or 0
+    local remainingAmount = financeData.remainingAmount or totalAmount
+    local monthlyPayment = financeData.monthlyPayment or 0
     local nextPaymentDate = os.date('%Y-%m-%d %H:%M:%S', os.time() + 30 * 24 * 60 * 60) -- 30 days from now
-    
+
     MySQL.insert.await([[
         INSERT INTO vehicle_financing (citizenid, vehicle, plate, total_amount, down_payment, remaining_amount, monthly_payment, months_total, months_remaining, next_payment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -399,10 +453,10 @@ function vehicles.createFinanceContract(citizenid, model, plate, financeData)
         citizenid,
         model,
         plate,
-        financeData.totalAmount,
+        totalAmount,
         downPayment,
-        financeData.remainingAmount,
-        financeData.monthlyPayment,
+        remainingAmount,
+        monthlyPayment,
         financeData.months,
         financeData.months,
         nextPaymentDate

@@ -3,6 +3,7 @@ local QBCore = exports['qb-core']:GetCoreObject()
 
 function ui.init()
     ui.setupNUICallbacks()
+    ui.registerEvents()
 end
 
 function ui.showNotification(data)
@@ -153,6 +154,33 @@ function ui.setupNUICallbacks()
     RegisterNUICallback('playSound', function(data, cb)
         ui.playSound(data.sound)
         cb('ok')
+    end)
+end
+
+function ui.registerEvents()
+    RegisterNetEvent('vehicleshop:financePayment', function(data)
+        if not data then return end
+        if data.success then
+            lib.notify({
+                title = locale('ui.success'),
+                description = locale('finance.payment_success', data.amount or 0, data.remaining or 0),
+                type = 'success'
+            })
+        else
+            lib.notify({
+                title = locale('ui.error'),
+                description = locale('finance.payment_failed', data.amount or 0),
+                type = 'error'
+            })
+        end
+    end)
+
+    RegisterNetEvent('vehicleshop:vehicleRepossessed', function()
+        lib.notify({
+            title = locale('ui.error'),
+            description = locale('finance.vehicle_repossessed'),
+            type = 'error'
+        })
     end)
 end
 

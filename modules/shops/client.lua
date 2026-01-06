@@ -34,6 +34,7 @@ function shops.createZones()
                 radius = 2.0,
                 debug = Config.Debug,
                 onEnter = function()
+                    shops.setCurrentShop(shopId)
                     if shop.owner then
                         lib.showTextUI(locale('shop.enter_owned', shop.name))
                     else
@@ -59,6 +60,7 @@ function shops.createZones()
                 radius = 2.0,
                 debug = Config.Debug,
                 onEnter = function()
+                    shops.setCurrentShop(shopId)
                     local isEmployee = lib.callback.await('vehicleshop:isShopEmployee', false, shopId)
                     if isEmployee then
                         lib.showTextUI(locale('management.open'))
@@ -83,6 +85,7 @@ function shops.createZones()
 end
 
 function shops.openShopMenu(shopId, shop)
+    shops.setCurrentShop(shopId)
     if not shop.owner then
         shops.showPurchaseDialog(shopId, shop)
     else

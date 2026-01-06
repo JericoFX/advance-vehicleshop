@@ -1,6 +1,7 @@
 local sales = {}
 local QBCore = exports['qb-core']:GetCoreObject()
 local database = lib.require('modules.database.server')
+local business = lib.require('modules.business.server')
 local MAX_REPORT_RANGE_DAYS = 90
 
 local function parseDate(value)
@@ -31,9 +32,9 @@ lib.callback.register('vehicleshop:getSalesHistory', function(source, shopId, pe
     if not shop then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
-    
-    if not employee or employee.rank < 2 then
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+
+    if employeeRank < 2 then
         return false
     end
     
@@ -48,9 +49,9 @@ lib.callback.register('vehicleshop:getEmployeeSales', function(source, shopId, e
     if not shop then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
-    
-    if not employee or employee.rank < 3 then
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+
+    if employeeRank < 3 then
         return false
     end
     
@@ -72,9 +73,9 @@ lib.callback.register('vehicleshop:getSalesStats', function(source, shopId)
     if not shop then return false end
     
     local citizenid = Player.PlayerData.citizenid
-    local employee = shop.employees[citizenid]
-    
-    if not employee or employee.rank < 3 then
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+
+    if employeeRank < 3 then
         return false
     end
     
@@ -160,11 +161,9 @@ lib.callback.register('vehicleshop:generateSalesReport', function(source, shopId
     
     local citizenid = Player.PlayerData.citizenid
     
-    if shop.owner ~= citizenid then
-        local employee = shop.employees[citizenid]
-        if not employee or employee.rank < 4 then
-            return false
-        end
+    local employeeRank = business.getEmployeeRank(citizenid, shopId)
+    if shop.owner ~= citizenid and employeeRank < 4 then
+        return false
     end
     
     local startTimestamp = parseDate(startDate)
