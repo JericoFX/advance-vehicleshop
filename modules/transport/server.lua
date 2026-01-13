@@ -8,6 +8,7 @@ local activeTransports = {}
 local trailerProtections = {}
 local transportCooldowns = {}
 local TRANSPORT_COOLDOWN_SECONDS = 3
+local MAX_TRANSPORT_VEHICLES = 10
 
 local function parseTimestamp(value)
     if not value then return nil end
@@ -149,7 +150,7 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
         return
     end
     
-    if type(vehicles) ~= 'table' or #vehicles < 1 then
+    if type(vehicles) ~= 'table' then
         TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
         return
     end
@@ -162,11 +163,17 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     isExpress = isExpress == true
     
     local success, payloadVehicles, totalCost = warehouse.withStockLock(function()
+        local requestCount = 0
         local total = 0
         local warehouseStock = GlobalState.WarehouseStock or {}
         local payload = {}
 
         for _, vehicle in ipairs(vehicles) do
+            requestCount = requestCount + 1
+            -- Implements: IDEA-07 – Cap transport vehicle request size
+            if requestCount > MAX_TRANSPORT_VEHICLES then
+                return false, 'invalid_request'
+            end
             if type(vehicle) ~= 'table' or type(vehicle.model) ~= 'string' then
                 return false, 'invalid_request'
             end
@@ -197,6 +204,9 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
                 price = stockData.currentPrice,
                 name = stockData.name or vehicle.name or model
             }
+        end
+        if requestCount < 1 then
+            return false, 'invalid_request'
         end
 
         if not database.tryAdjustShopFunds(shopId, -total) then
