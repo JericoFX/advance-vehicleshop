@@ -8,6 +8,7 @@ local activeTransports = {}
 local trailerProtections = {}
 local transportCooldowns = {}
 local TRANSPORT_COOLDOWN_SECONDS = 3
+local MAX_TRANSPORT_VEHICLES = 10
 
 local function parseTimestamp(value)
     if not value then return nil end
@@ -133,6 +134,7 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return end
 
+    -- Implements: IDEA-07 – Cap transport vehicle request size
     if isOnCooldown(transportCooldowns, source, TRANSPORT_COOLDOWN_SECONDS) then
         TriggerClientEvent('vehicleshop:notify', source, 'cooldown')
         return
@@ -150,6 +152,10 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     end
     
     if type(vehicles) ~= 'table' or #vehicles < 1 then
+        TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
+        return
+    end
+    if #vehicles > MAX_TRANSPORT_VEHICLES then
         TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
         return
     end
