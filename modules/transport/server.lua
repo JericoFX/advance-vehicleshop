@@ -134,6 +134,7 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     local Player = QBCore.Functions.GetPlayer(source)
     if not Player then return end
 
+    -- Implements: IDEA-07 – Cap transport vehicle request size
     if isOnCooldown(transportCooldowns, source, TRANSPORT_COOLDOWN_SECONDS) then
         TriggerClientEvent('vehicleshop:notify', source, 'cooldown')
         return
@@ -151,6 +152,10 @@ AddEventHandler('vehicleshop:createTransport', function(shopId, vehicles, transp
     end
     
     if type(vehicles) ~= 'table' then
+        TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
+        return
+    end
+    if #vehicles > MAX_TRANSPORT_VEHICLES then
         TriggerClientEvent('vehicleshop:notify', source, 'invalid_request')
         return
     end
